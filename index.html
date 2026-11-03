@@ -71,7 +71,12 @@ h1 span{color:var(--gold)}
 .lobby .acts .ghost{flex:1}
 .lobby .msg.warn{color:var(--warn)}
 .lobby .link{background:none;border:0;color:var(--muted);text-decoration:underline;justify-self:start;padding:0}
-#mini{position:absolute;z-index:3;inset:auto;left:auto;right:max(10px,env(safe-area-inset-right,0px));background:none;pointer-events:none;border-radius:10px;opacity:.92}
+#mini{position:static;display:block;inset:auto;width:auto;height:auto;background:none;pointer-events:none;border-radius:10px}
+.minislot{display:flex;justify-content:center}
+#slotTop{flex:0 0 100%}
+#slotFoot{position:absolute;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));z-index:2}
+body.started.narrow header h1,body.started.narrow header .key{display:none}
+body.started:not(.narrow) .footer{padding-left:calc(250px + 32px + env(safe-area-inset-left,0px))}
 .timer{font:700 .85rem var(--f-body);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;padding:6px 10px;border:1px solid var(--line);border-radius:10px}
 .timer b{color:var(--ink)}
 .timer.ok b{color:var(--ok)}
@@ -124,6 +129,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
 </head>
 <body>
 <header>
+  <div class="minislot" id="slotTop" hidden></div>
   <h1>Gemas <span>y Grupos</span></h1>
   <div class="key" aria-label="Valor de las gemas">
     <div class="chip"><svg viewBox="0 0 20 20"><polygon points="10,1 18,5.5 18,14.5 10,19 2,14.5 2,5.5" fill="#f6c445" stroke="#7a5410"/></svg><b>1</b><span>unidad</span></div>
@@ -133,6 +139,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
   <div class="score">
     <div class="eq" id="eq" aria-live="polite"></div>
     <div class="who" id="who">Sin conectar</div>
+    <button id="fs" type="button" hidden>Pantalla completa</button>
     <button id="mute" type="button" aria-pressed="false">Sonido sí</button>
     <div class="timer" id="timer" aria-live="off">0,0 s</div>
     <button id="restart" type="button">Reiniciar problema</button>
@@ -140,11 +147,11 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
   </div>
 </header>
 <main>
-  <canvas id="mini" aria-label="Plano del otro jugador"></canvas>
   <canvas id="board" aria-label="Tablero con columnas de centenas, decenas y unidades"></canvas>
   <div class="toast" id="toast">Un grupo tiene como máximo 10 gemas</div>
   <div class="hint" id="hint" hidden></div>
   <div class="footer" id="footer">
+    <div class="minislot" id="slotFoot" hidden><canvas id="mini" aria-label="Plano del otro jugador"></canvas></div>
     <div class="cue" id="cue" hidden></div>
     <div class="op" id="op">43 − 17 =</div>
     <div class="lock" id="lock" aria-label="Candado de combinación: marca la respuesta y pulsa Abrir">
@@ -170,6 +177,7 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
       <button class="ghost" id="cancelRole" type="button" hidden>Cambiar de jugador</button>
       <button class="go" id="go" type="button" hidden>¡Empezar!</button>
     </div>
+    <button class="ghost" id="fs2" type="button" hidden>Jugar en pantalla completa</button>
     <button class="link" id="newgame" type="button">Crear otra partida</button>
   </div>
 </div>
@@ -285,9 +293,11 @@ function freeSpot(kind,cx,cy,spread,placed,band){
   }while(tries<400 && (inMini(q) || shadows.some(sh=>dist(q.x,q.y,sh.x,sh.y)<minD) || holes.some(h=>h.kind===kind&&dist(q.x,q.y,h.x,h.y)<h.r+G*1.2) || [...placed,...gems.filter(m=>m.group!=null)].some(o=>dist(q.x,q.y,o.tx??o.x,o.ty??o.y)<minD)));
   placed.push(q); return q;
 }
-function inMini(q){                    // keep new gems out from under the corner view of the other player
-  const w=Math.min(W*.3,200), h=w*.62;
-  return q.x>W-w-G*2.2 && q.y<LABEL_H()+h+G*1.6;
+function inMini(){ return false; }      // the view of the other player no longer covers the plane
+const miniWide=()=>window.innerWidth>=700;
+function miniSize(){
+  if(miniWide()) return {w:250,h:150};
+  const w=Math.round(Math.min(window.innerWidth-32,440)); return {w,h:Math.round(Math.max(96,w*.32))};
 }
 function spawn(kind,count,band,sign=1){
   const placed=[], [x0,x1]=zone(kind);
@@ -396,7 +406,7 @@ let li=0, pi=0, mode='read', N=0, hinted=false, t0=0, tEnd=0;
 const LV=()=>LEVELS[li];
 const OP=()=>mode==='add'?'+':'−';
 function placeBands(){
-  const top=LABEL_H(), F=(document.getElementById('footer').offsetHeight||G*3.4)+G*.4;
+  const top=LABEL_H(), F=Math.max(document.getElementById('footer').offsetHeight||G*3.4, miniWide()?miniSize().h+16:0)+G*.4;
   B.f0=H-F; B.t1=B.t0=B.f0;
   B.a0=top; B.b1=B.t0-G*1.1;
   B.a1=B.b0=B.b1;                    // multiplayer: each player sees only their own plane
@@ -559,7 +569,7 @@ function updateCue(){
   }
   // both planes together (own gems + what the mini view of the other player shows)
   const oc={h:0,t:0,u:0}, oneg={h:0,t:0,u:0};
-  for(const o of otherGems) (o[1]<0?oneg:oc)[KINDS[o[0]]]++;
+  for(const o of otherGems) (o[1]<0?oneg:oc)[KINDS[o[0]]]+=(o[4]||1);
   if(mode==='add'){
     if(pi===0&&li===2) return say('JUNTOS: arrastra un grupo hasta arriba (↑) para enviarlo a tu compañero. Junten las gemas, encuentren la suma y ábranla en el candado.');
     return say('Envía gemas arrastrándolas hasta arriba (↑). Cualquiera de los dos puede girar los diales y abrir el candado.');
@@ -807,31 +817,76 @@ let miniT=0;
 function sendMini(force){
   const now=performance.now(); if(!force&&now-miniT<180) return; miniT=now;
   const h=Math.max(1,B.b1-B.a0);
-  const snap=gems.map(m=>[KINDS.indexOf(m.kind),m.sign,+(m.tx/W).toFixed(3),+((m.ty-B.a0)/h).toFixed(3)]);
+  const snap=[...groups.values()].filter(g=>g.members.length).map(g=>[KINDS.indexOf(g.kind),gsign(g),+(g.cx/W).toFixed(3),+((g.cy-B.a0)/h).toFixed(3),g.members.length]);
   const js=JSON.stringify(snap); if(js===lastMini&&!force) return; lastMini=js;
   send({t:'mini',g:snap});
 }
+// where the view of the other player lives: in the header on phones (it replaces the title and the
+// gem key, which matter less), in the footer's left corner on wide screens. It never covers the plane.
+const slotTop=document.getElementById('slotTop'), slotFoot=document.getElementById('slotFoot');
+let miniPlace='';
+function placeMini(){
+  const wide=miniWide(), place=!started?'none':wide?'foot':'top';
+  document.body.classList.toggle('started',started); document.body.classList.toggle('narrow',!wide);
+  if(place===miniPlace) return; miniPlace=place;
+  slotTop.hidden=place!=='top'; slotFoot.hidden=place!=='foot';
+  if(place==='top') slotTop.appendChild(miniEl); else if(place==='foot') slotFoot.appendChild(miniEl);
+  setTimeout(()=>{ placeBands(); },0);
+}
 function drawMini(){
-  if(!started){ miniEl.hidden=true; return; } miniEl.hidden=false;
-  const w=Math.round(Math.min(W*.3,200)), h=Math.round(w*.62), dpr=Math.min(2,window.devicePixelRatio||1);
+  placeMini(); if(!started) return;
+  const {w,h}=miniSize(), dpr=Math.min(2,window.devicePixelRatio||1);
   if(miniEl.width!==w*dpr||miniEl.height!==h*dpr){ miniEl.width=w*dpr; miniEl.height=h*dpr; miniEl.style.width=w+'px'; miniEl.style.height=h+'px'; }
-  miniEl.style.top=Math.round(LABEL_H()+4)+'px';
   const x=mctx; x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
-  x.fillStyle='rgba(11,17,26,.88)'; x.beginPath(); x.roundRect(0,0,w,h,10); x.fill();
+  x.fillStyle='#0d151f'; x.beginPath(); x.roundRect(0,0,w,h,10); x.fill();
   x.strokeStyle=conn&&conn.open?'rgba(95,211,160,.6)':'rgba(255,122,102,.6)'; x.lineWidth=1.5; x.stroke();
-  const top=16, ph=h-top-4;
-  x.font='700 10px "Atkinson Hyperlegible", system-ui, sans-serif'; x.fillStyle=C.muted; x.textAlign='left'; x.textBaseline='middle';
-  x.fillText(`Jugador ${other}${mode==='read'?'':other===1?' · plano A':' · plano B'}`,7,9);
-  x.strokeStyle='rgba(170,200,230,.18)'; x.lineWidth=1;
-  for(let i=1;i<3;i++){ x.beginPath(); x.moveTo(w*i/3,top); x.lineTo(w*i/3,h-4); x.stroke(); }
-  const col={0:'#3b82f6',1:'#e5484d',2:'#f6c445'}, size={0:3.6,1:3,2:2.4};
-  for(const o of otherGems){
-    const gx=4+o[2]*(w-8), gy=top+Math.min(1,Math.max(0,o[3]))*ph, r=size[o[0]]||3;
-    hex(x,gx,gy,r);
-    if(o[1]<0){ x.fillStyle='#0b1018'; x.fill(); x.strokeStyle=col[o[0]]; x.lineWidth=1.2; x.stroke(); }
-    else { x.fillStyle=col[o[0]]; x.fill(); }
+  const top=18, ph=h-top-6, cw=w/3;
+  x.font='700 11px "Atkinson Hyperlegible", system-ui, sans-serif'; x.fillStyle=C.muted; x.textAlign='left'; x.textBaseline='middle';
+  x.fillText(`Jugador ${other}${mode==='read'?'':other===1?' · plano A':' · plano B'}`,8,10);
+  x.strokeStyle='rgba(170,200,230,.16)'; x.lineWidth=1;
+  for(let i=1;i<3;i++){ x.beginPath(); x.moveTo(cw*i,top); x.lineTo(cw*i,h-5); x.stroke(); }
+  // each group is drawn as a "ten frame": rows of up to 5 dots, easy to count without numbers
+  const col={0:'#3b82f6',1:'#e5484d',2:'#f6c445'}, rad={0:4.2,1:3.7,2:3.2};
+  const sc=miniWide()?1.05:Math.min(1.25,Math.max(.85,w/300));
+  const boxes=otherGems.map(o=>{
+    const k=o[0], n=Math.max(1,Math.min(10,o[4]||1)), r=(rad[k]||3.5)*sc, d=r*2+2.4;
+    const cols=Math.min(n,5), rows=Math.ceil(n/5), bw=cols*d+4, bh=rows*d+4;
+    const x0=cw*k+bw/2+3, x1=cw*(k+1)-bw/2-3;
+    return {o,k,n,r,d,cols,bw,bh,x:Math.min(x1,Math.max(x0,cw*k+((o[2]*3)-k)*cw)),y:Math.min(top+ph-bh/2,Math.max(top+bh/2,top+o[3]*ph)),x0,x1};
+  });
+  for(let it=0;it<8;it++)                    // nudge apart frames that would overlap
+    for(let i=0;i<boxes.length;i++) for(let j=i+1;j<boxes.length;j++){
+      const a=boxes[i], b=boxes[j]; if(a.k!==b.k) continue;
+      const ox=(a.bw+b.bw)/2+3-Math.abs(a.x-b.x), oy=(a.bh+b.bh)/2+3-Math.abs(a.y-b.y);
+      if(ox>0&&oy>0){ const s=(a.y<=b.y?-1:1)*oy/2; a.y+=s; b.y-=s;
+        for(const q of [a,b]) q.y=Math.min(top+ph-q.bh/2,Math.max(top+q.bh/2,q.y)); }
+    }
+  for(const b of boxes){
+    const neg=b.o[1]<0, c=col[b.k];
+    if(b.n>1){ x.beginPath(); x.roundRect(b.x-b.bw/2,b.y-b.bh/2,b.bw,b.bh,4); x.fillStyle='rgba(255,255,255,.05)'; x.fill(); x.strokeStyle=c; x.globalAlpha=.45; x.lineWidth=1; x.stroke(); x.globalAlpha=1; }
+    for(let i=0;i<b.n;i++){
+      const cx=b.x-(b.cols-1)*b.d/2+(i%5)*b.d, cy=b.y-(Math.ceil(b.n/5)-1)*b.d/2+Math.floor(i/5)*b.d;
+      hex(x,cx,cy,b.r);
+      if(neg){ x.fillStyle='#0b1018'; x.fill(); x.strokeStyle=c; x.lineWidth=1.3; x.stroke(); }
+      else { x.fillStyle=c; x.fill(); }
+    }
   }
 }
+// full screen (where the browser allows it; iPhones do not)
+const fsBtns=[document.getElementById('fs'),document.getElementById('fs2')];
+const root=document.documentElement;
+const canFS=!!(root.requestFullscreen||root.webkitRequestFullscreen);
+const inFS=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
+function syncFS(){ fsBtns.forEach((b,i)=>{ b.hidden=!canFS; b.textContent=inFS()?'Salir de pantalla completa':(i?'Jugar en pantalla completa':'Pantalla completa'); }); }
+function toggleFS(){
+  try{
+    if(inFS()) (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+    else { const r=(root.requestFullscreen||root.webkitRequestFullscreen).call(root); if(r&&r.catch) r.catch(()=>toast('Este navegador no permite la pantalla completa.')); }
+  }catch(e){ toast('Este navegador no permite la pantalla completa.'); }
+}
+fsBtns.forEach(b=>b.addEventListener('click',toggleFS));
+document.addEventListener('fullscreenchange',syncFS); document.addEventListener('webkitfullscreenchange',syncFS);
+syncFS();
 
 /* ---------- input ---------- */
 /* Pick a gem (or its group) -> it sticks to the pointer and collects what it touches (same kind, up to 10).
