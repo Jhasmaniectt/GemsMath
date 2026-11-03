@@ -1,0 +1,973 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Gemas · Multijugador</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Atkinson+Hyperlegible:wght@400;700&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+body{margin:0;font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+/* Layout: one-screen board. Slim top bar (gem key + live count), full-bleed play mat, floating toast. Single dark "cave stone" look by choice. */
+:root{
+  --stone:#17222f; --stone-2:#1f2d3d; --mat:#22344a; --line:rgba(170,200,230,.14);
+  --ink:#eef3f8; --muted:#9fb1c5;
+  --gold:#f6c445; --ruby:#e5484d; --sapphire:#3b82f6; --ok:#5fd3a0; --warn:#ff7a66;
+  --f-display:"Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --f-body:"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{background:var(--stone);color:var(--ink);font-family:var(--f-body);overflow:hidden;
+  display:flex;flex-direction:column;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:10px 18px;
+  padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  background:var(--stone-2);border-bottom:1px solid var(--line)}
+h1{font-family:var(--f-display);font-weight:800;font-size:1.35rem;line-height:1;margin:0;letter-spacing:.01em}
+h1 span{color:var(--gold)}
+.key{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 5px;border-radius:999px;background:rgba(255,255,255,.05);
+  font-size:.82rem;color:var(--ink)}
+.chip svg{width:20px;height:20px}
+.chip.locked{opacity:.45}
+.chip b{font-family:var(--f-display);font-weight:800;font-size:.95rem}
+.score{margin-left:auto;display:flex;align-items:center;gap:10px;font-variant-numeric:tabular-nums}
+.eq{font-family:var(--f-display);font-weight:800;font-size:1.2rem;display:flex;align-items:baseline;gap:6px 12px;flex-wrap:wrap}
+.eq .t{color:var(--ruby)}
+.eq .u{color:var(--gold)}
+.eq .h{color:var(--sapphire)}
+.eq .goal{font-size:1.5rem;color:var(--ok);letter-spacing:.02em}
+.eq .have{font-size:.95rem;color:var(--muted);font-weight:600}
+.mode{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.mode button{border:0;border-radius:0;background:transparent;padding:7px 12px}
+.mode button[aria-pressed="true"]{background:var(--ok);color:#06281b}
+.who{font:700 .8rem var(--f-body);padding:6px 10px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.who.on{color:var(--ok);border-color:rgba(95,211,160,.45)}
+.who.off{color:var(--warn);border-color:rgba(255,122,102,.45)}
+.lobby{position:fixed;inset:0;z-index:50;display:grid;place-items:center;background:rgba(10,16,24,.82);backdrop-filter:blur(4px);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px}
+.lobby .card{width:min(460px,100%);background:var(--stone-2);border:1px solid var(--line);border-radius:18px;padding:22px;display:grid;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,.45)}
+.lobby h2{margin:0;font-family:var(--f-display);font-weight:800;font-size:1.6rem;line-height:1.1}
+.lobby h2 span{color:var(--gold)}
+.lobby p{margin:0;color:var(--muted);line-height:1.45}
+.lobby .code{font-family:var(--f-display);font-weight:800;font-size:1.25rem;color:var(--ink);letter-spacing:.06em}
+.lobby .row{display:flex;gap:8px}
+.lobby input{flex:1;min-width:0;font:600 .85rem var(--f-body);color:var(--ink);background:#111a25;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.lobby .roles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.lobby .roles button{display:grid;gap:2px;padding:14px 10px;font:800 1.1rem var(--f-display);border-radius:14px}
+.lobby .roles button small{font:600 .78rem var(--f-body);color:var(--muted)}
+.lobby .roles button:disabled{opacity:.45;cursor:not-allowed}
+.lobby .roles button.mine{background:var(--ok);color:#06281b;border-color:transparent;opacity:1}
+.lobby .roles button.mine small{color:#06281b}
+.lobby .msg{font-weight:700;color:var(--ink);min-height:1.4em}
+.lobby .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--ok);border-radius:50%;animation:rot 1s linear infinite;vertical-align:-1px;margin-right:6px}
+@keyframes rot{to{transform:rotate(360deg)}}
+.lobby .link{background:none;border:0;color:var(--muted);text-decoration:underline;justify-self:start;padding:0}
+#mini{position:absolute;z-index:3;inset:auto;left:auto;right:max(10px,env(safe-area-inset-right,0px));background:none;pointer-events:none;border-radius:10px;opacity:.92}
+.timer{font:700 .85rem var(--f-body);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;padding:6px 10px;border:1px solid var(--line);border-radius:10px}
+.timer b{color:var(--ink)}
+.timer.ok b{color:var(--ok)}
+.eq .lvl{font-size:.95rem;color:var(--muted);font-weight:600;font-family:var(--f-body)}
+.cue{flex:0 0 100%;display:flex;justify-content:center}
+.cue span{font-weight:700;font-size:.92rem;color:#06281b;background:var(--ok);border-radius:12px;padding:7px 14px;max-width:560px;text-align:center;text-wrap:balance}
+.cue[hidden]{display:none}
+.dial.cue-on{outline:3px solid var(--ok);outline-offset:3px;animation:pulse 1s ease-in-out infinite}
+.footer .openbtn.cue-on{outline:3px solid #fff;outline-offset:3px;animation:pulse 1s ease-in-out infinite}
+@keyframes pulse{50%{outline-offset:7px}}
+/* footer: the operation and a luggage-style combination lock */
+.footer{position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;gap:10px 14px;flex-wrap:wrap;
+  padding-top:16px;padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.op{font-family:var(--f-display);font-weight:800;font-size:clamp(1.5rem,4.2vw,2.3rem);line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
+.op.done{color:var(--ok)}
+.lock{position:relative;display:flex;align-items:center;gap:5px;padding:5px 8px;border-radius:12px;
+  background:linear-gradient(180deg,#465369,#252e3c);border:2px solid #5c6a82;box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.35)}
+.lock::before{content:"";position:absolute;left:22%;right:22%;top:-15px;height:16px;border:4px solid #8b98b0;border-bottom:0;border-radius:12px 12px 0 0;transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.lock.open{border-color:var(--ok)}
+.lock.open::before{transform:translateY(-9px) rotate(-8deg);border-color:var(--ok)}
+.lock.bad{animation:shake .4s;border-color:var(--warn)}
+@keyframes shake{0%,100%{translate:0}20%{translate:-7px}40%{translate:6px}60%{translate:-4px}80%{translate:3px}}
+.wheel{display:grid;justify-items:center}
+.wheel button{background:none;border:0;padding:1px 8px;font-size:.6rem;line-height:1;color:var(--muted);border-radius:6px}
+.wheel button:hover{color:var(--ink);background:rgba(255,255,255,.08)}
+.dial{width:34px;height:42px;border-radius:7px;display:grid;place-items:center;cursor:ns-resize;touch-action:none;user-select:none;
+  font-family:var(--f-display);font-weight:800;font-size:1.55rem;color:#f2f5f9;border-top:3px solid var(--c);
+  background:linear-gradient(180deg,#05080c 0%,#2b3546 28%,#3a4659 50%,#2b3546 72%,#05080c 100%);font-variant-numeric:tabular-nums}
+.dial:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.footer .openbtn{background:var(--ok);color:#06281b;border-color:transparent;padding:9px 16px;font-size:.95rem}
+.footer .openbtn:hover{background:#7be3b4}
+@media (prefers-reduced-motion:reduce){.dial.cue-on,.footer .openbtn.cue-on{animation:none}.lock.bad{animation:none}.lock::before{transition:none}}
+@media (max-width:560px){.score{flex-wrap:wrap;gap:8px}.score > button{flex:1}}
+.toast.good{background:var(--ok);color:#06281b}
+button{font:700 .85rem var(--f-body);color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);
+  border-radius:10px;padding:7px 12px;cursor:pointer}
+button:hover{background:rgba(255,255,255,.14)}
+button:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+main{position:relative;flex:1;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;display:block;
+  background:radial-gradient(circle at 1px 1px, var(--line) 1px, transparent 1.5px) 0 0/28px 28px, radial-gradient(ellipse at 50% 40%, var(--mat), var(--stone) 75%)}
+.hint{position:absolute;left:0;right:0;bottom:0;text-align:center;pointer-events:none;color:var(--muted);font-size:.85rem;
+  padding-bottom:calc(10px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.toast{position:absolute;left:50%;top:14px;transform:translate(-50%,-8px);opacity:0;pointer-events:none;
+  background:var(--warn);color:#2a0d07;font-weight:700;padding:8px 14px;border-radius:16px;transition:opacity .2s, transform .2s;max-width:calc(100% - 32px);width:max-content;text-align:center}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+@media (max-width:560px){.score{margin-left:0;width:100%;justify-content:space-between}.chip span{display:none}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}.lobby .spin{animation-duration:3s}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Gemas <span>y Grupos</span></h1>
+  <div class="key" aria-label="Valor de las gemas">
+    <div class="chip"><svg viewBox="0 0 20 20"><polygon points="10,1 18,5.5 18,14.5 10,19 2,14.5 2,5.5" fill="#f6c445" stroke="#7a5410"/></svg><b>1</b><span>unidad</span></div>
+    <div class="chip"><svg viewBox="0 0 20 20"><polygon points="10,1 18,5.5 18,14.5 10,19 2,14.5 2,5.5" fill="#e5484d" stroke="#6e1517"/></svg><b>10</b><span>decena</span></div>
+    <div class="chip"><svg viewBox="0 0 20 20"><polygon points="10,1 18,5.5 18,14.5 10,19 2,14.5 2,5.5" fill="#3b82f6" stroke="#123a7a"/></svg><b>100</b><span>centena</span></div>
+  </div>
+  <div class="score">
+    <div class="eq" id="eq" aria-live="polite"></div>
+    <div class="who" id="who">Sin conectar</div>
+    <button id="mute" type="button" aria-pressed="false">Sonido sí</button>
+    <div class="timer" id="timer" aria-live="off">0,0 s</div>
+    <button id="restart" type="button">Reiniciar problema</button>
+    <button id="reset" type="button">Siguiente nivel</button>
+  </div>
+</header>
+<main>
+  <canvas id="mini" aria-label="Plano del otro jugador"></canvas>
+  <canvas id="board" aria-label="Tablero con columnas de centenas, decenas y unidades"></canvas>
+  <div class="toast" id="toast">Un grupo tiene como máximo 10 gemas</div>
+  <div class="hint" id="hint" hidden></div>
+  <div class="footer" id="footer">
+    <div class="cue" id="cue" hidden></div>
+    <div class="op" id="op">43 − 17 =</div>
+    <div class="lock" id="lock" aria-label="Candado de combinación: marca la respuesta y pulsa Abrir">
+      <div class="wheel"><button type="button" data-w="0" data-d="1" aria-label="Centenas arriba">▲</button><div class="dial" id="d0" tabindex="0" role="spinbutton" aria-label="Cifra de las centenas" aria-valuemin="0" aria-valuemax="9" style="--c:var(--sapphire)">0</div><button type="button" data-w="0" data-d="-1" aria-label="Centenas abajo">▼</button></div>
+      <div class="wheel"><button type="button" data-w="1" data-d="1" aria-label="Decenas arriba">▲</button><div class="dial" id="d1" tabindex="0" role="spinbutton" aria-label="Cifra de las decenas" aria-valuemin="0" aria-valuemax="9" style="--c:var(--ruby)">0</div><button type="button" data-w="1" data-d="-1" aria-label="Decenas abajo">▼</button></div>
+      <div class="wheel"><button type="button" data-w="2" data-d="1" aria-label="Unidades arriba">▲</button><div class="dial" id="d2" tabindex="0" role="spinbutton" aria-label="Cifra de las unidades" aria-valuemin="0" aria-valuemax="9" style="--c:var(--gold)">0</div><button type="button" data-w="2" data-d="-1" aria-label="Unidades abajo">▼</button></div>
+    </div>
+    <button class="openbtn" id="openLock" type="button">Abrir</button>
+  </div>
+</main>
+<div class="lobby" id="lobby">
+  <div class="card">
+    <h2>Gemas <span>multijugador</span></h2>
+    <p>Partida <span class="code" id="gcode"></span>. Envía este enlace a tu compañero; cada uno elige un jugador.</p>
+    <div class="row"><input id="glink" readonly aria-label="Enlace de la partida"><button id="copy" type="button">Copiar enlace</button></div>
+    <div class="roles">
+      <button id="r1" type="button">Jugador 1<small>Plano A</small></button>
+      <button id="r2" type="button">Jugador 2<small>Plano B</small></button>
+    </div>
+    <p class="msg" id="lmsg" role="status"></p>
+    <button class="link" id="newgame" type="button">Crear otra partida</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(()=>{
+const MAX=10, LIFT_MS=420, DBL_MS=350;
+const cv=document.getElementById('board'), ctx=cv.getContext('2d');
+const eqEl=document.getElementById('eq'), toastEl=document.getElementById('toast');
+let W=0,H=0,DPR=1,G=16, sprites={}, spriteS=0;
+let gems=[], groups=new Map(), nextId=1, drag=null, fx=[];
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const dist=(ax,ay,bx,by)=>Math.hypot(ax-bx,ay-by);
+const LABEL_H=()=>G*2.6;            // space for zone titles at the top
+const KINDS=['h','t','u'];               // columns left to right: hundreds, tens, units
+const NAME={h:['centena','centenas'],t:['decena','decenas'],u:['unidad','unidades']};
+const VALUE={h:100,t:10,u:1};
+const kIdx=k=>KINDS.indexOf(k);
+const zone=k=>{const i=kIdx(k),w=W/KINDS.length;return [i*w,(i+1)*w]};
+const upKind=k=>KINDS[kIdx(k)-1], downKind=k=>KINDS[kIdx(k)+1];
+
+/* ---------- gem sprites ---------- */
+const COLORS={h:{light:'#c4dbff',base:'#3b82f6',dark:'#1d4fb8',edge:'#0f2c6b'},
+              u:{light:'#fff4b8',base:'#f6c445',dark:'#c18a1c',edge:'#7a5410'},
+              t:{light:'#ffc2c3',base:'#e5484d',dark:'#a3242a',edge:'#5e1013'}};
+function hex(c,x,y,r){c.beginPath();for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3;c[i?'lineTo':'moveTo'](x+r*Math.cos(a),y+r*Math.sin(a))}c.closePath()}
+const SIZE={h:1.2,t:1,u:.8};          // hundreds a bit bigger, units a bit smaller; no numbers on gems
+function makeSprite(kind){
+  const sc=SIZE[kind], col=COLORS[kind], s=Math.ceil((G*2*sc+6)*DPR), c=document.createElement('canvas'); c.width=c.height=s;
+  const x=c.getContext('2d'); x.scale(DPR,DPR); const m=G*sc+3, r=G*sc;
+  const gr=x.createLinearGradient(m-r,m-r,m+r,m+r); gr.addColorStop(0,col.light);gr.addColorStop(.45,col.base);gr.addColorStop(1,col.dark);
+  hex(x,m,m,r); x.fillStyle=gr; x.fill(); x.lineWidth=1.5; x.strokeStyle=col.edge; x.stroke();
+  const ri=r*.52; x.strokeStyle='rgba(255,255,255,.35)'; x.lineWidth=1;
+  for(let i=0;i<6;i++){const a=-Math.PI/2+i*Math.PI/3;x.beginPath();x.moveTo(m+ri*Math.cos(a),m+ri*Math.sin(a));x.lineTo(m+r*Math.cos(a),m+r*Math.sin(a));x.stroke()}
+  hex(x,m,m,ri); x.fillStyle=col.light; x.globalAlpha=.55; x.fill(); x.globalAlpha=1; x.stroke();
+  x.beginPath(); x.ellipse(m-r*.3,m-r*.42,r*.22,r*.1,-.5,0,Math.PI*2); x.fillStyle='rgba(255,255,255,.8)'; x.fill();
+  gemLabel(x,kind,m,r,String(VALUE[kind]),col.edge);
+  c.css=s/DPR; return c;
+}
+function gemLabel(x,kind,m,r,txt,edge){   // the gem's value written on it: 1, 10, 100
+  const f=txt.length>=4?.5:txt.length===3?.6:txt.length===2?.74:.9;
+  x.font=`800 ${Math.round(r*f)}px "Baloo 2", system-ui, sans-serif`; x.textAlign='center'; x.textBaseline='middle';
+  x.lineJoin='round'; x.lineWidth=Math.max(2.5,r*.2); x.strokeStyle=edge; x.strokeText(txt,m,m+r*.06);
+  x.fillStyle='#fff'; x.fillText(txt,m,m+r*.06);
+}
+function makeNegSprite(kind){      // negative gem: dark body, dashed outline in its color, a minus sign
+  const sc=SIZE[kind], col=COLORS[kind], s=Math.ceil((G*2*sc+6)*DPR), c=document.createElement('canvas'); c.width=c.height=s;
+  const x=c.getContext('2d'); x.scale(DPR,DPR); const m=G*sc+3, r=G*sc;
+  const gr=x.createLinearGradient(m-r,m-r,m+r,m+r); gr.addColorStop(0,'#2a3445'); gr.addColorStop(1,'#0b1018');
+  hex(x,m,m,r); x.fillStyle=gr; x.fill();
+  x.setLineDash([Math.max(3,r*.28),Math.max(2,r*.16)]); x.lineWidth=Math.max(2,r*.12); x.strokeStyle=col.base; x.stroke(); x.setLineDash([]);
+  hex(x,m,m,r*.52); x.lineWidth=1; x.strokeStyle=col.base; x.globalAlpha=.45; x.stroke(); x.globalAlpha=1;
+  gemLabel(x,kind,m,r,'−'+VALUE[kind],'#05080c');
+  c.css=s/DPR; return c;
+}
+function makeSprites(){ sprites={}; for(const k of ['h','t','u']){ sprites[k]=makeSprite(k); sprites[k+'n']=makeNegSprite(k); } }
+const skey=m=>m.sign<0?m.kind+'n':m.kind;   // sprite key for a gem
+const gsign=g=>(g.members[0]&&g.members[0].sign)||1;
+
+/* ---------- groups ---------- */
+function ringR(n){ return n<=1?0:Math.max(G*1.55,(n*G*2.25)/(Math.PI*2)); }
+function newGroup(kind,x,y){ const g={id:nextId++,kind,cx:x,cy:y,members:[],shake:0,glow:0}; groups.set(g.id,g); return g; }
+function mkGem(kind,x,y,sign=1){ const gm={kind,sign,x,y,tx:x,ty:y,group:null,pop:0,join:0,lift:0}; gems.push(gm); return gm; }
+const isHeld=g=>drag&&drag.type==='hold'&&drag.g===g;
+const canCombine=g=>kIdx(g.kind)>0&&g.members.length===MAX;   // exactly 10 may move one column left
+const canSplit=g=>kIdx(g.kind)<KINDS.length-1&&g.members.length===1;        // a single gem may move one column right
+const planeOf=y=>y<B.a1?'A':'B';
+const planeBand=pl=>pl==='A'?{y0:B.a0,y1:B.a1}:pl==='B'?{y0:B.b0,y1:B.b1}:{y0:B.t0,y1:B.t1};
+function layout(g){
+  const n=g.members.length; let r=ringR(n);
+  let x0,x1, pad=r+G*1.6;
+  [x0,x1]=zone(g.kind);
+  if(isHeld(g)){ pad=r+G*1.1;
+    if(canCombine(g)) x0=zone(upKind(g.kind))[0];
+    if(canSplit(g)) x1=zone(downKind(g.kind))[1]; }
+  g.cx = x1-x0<2*pad ? (x0+x1)/2 : clamp(g.cx,x0+pad,x1-pad);
+  // vertical: every group stays inside its own plane (A or B); planes are closed to each other
+  // a held group may move between plane A and plane B; a resting group sits inside one plane
+  const band=isHeld(g)?{y0:B.a0,y1:B.b1}:planeBand(planeOf(g.cy)), top=band.y0+r+G*1.1, bot=band.y1-r-G*1.1;
+  g.cy = bot<top ? (top+bot)/2 : clamp(g.cy,top,bot);
+  if(!isHeld(g)){                 // a group dropped in a hole stays inside it
+    const hl=holeAt(g.kind,g.cx,g.cy);
+    if(hl){ r=Math.min(r,Math.max(0,hl.r-G*.95));    // tighten the ring so it fits the hole
+      const lim=Math.max(0,hl.r-r-G*.95), dx=g.cx-hl.x, dy=g.cy-hl.y, d=Math.hypot(dx,dy);
+      if(d>lim){ g.cx=hl.x+dx*lim/(d||1); g.cy=hl.y+dy*lim/(d||1); } } }
+  g.members.forEach((m,i)=>{const a=-Math.PI/2+i*Math.PI*2/n; m.tx=g.cx+r*Math.cos(a); m.ty=g.cy+r*Math.sin(a); m.group=g.id;});
+}
+function addToGroup(g,gem){
+  g.members.push(gem);
+  const ang=m=>{let a=Math.atan2(m.y-g.cy,m.x-g.cx)+Math.PI/2; return (a+Math.PI*4)%(Math.PI*2)};
+  if(g.members.length>2) g.members.sort((a,b)=>ang(a)-ang(b));
+  layout(g);
+}
+function removeFromGroup(gem){
+  const g=groups.get(gem.group); if(!g) return null;
+  g.members.splice(g.members.indexOf(gem),1); gem.group=null;
+  if(!g.members.length) groups.delete(g.id); else layout(g);
+  return g;
+}
+function dropGems(list){ gems=gems.filter(m=>!list.includes(m)); }
+
+/* ---------- setup ---------- */
+function freeSpot(kind,cx,cy,spread,placed,band){
+  const [x0,x1]=zone(kind), minD=G*2.4; let q, tries=0, rad=spread;
+  band=band||(cy!=null?planeBand(planeOf(cy)):{y0:B.a0,y1:B.b1});
+  do{
+    if(cx==null){ q={x:x0+G*1.8+Math.random()*(x1-x0-G*3.6), y:band.y0+G*1.4+Math.random()*Math.max(0,band.y1-band.y0-G*2.8)}; }
+    else { const a=Math.random()*Math.PI*2, r=G*1.2+Math.random()*rad; q={x:cx+r*Math.cos(a),y:cy+r*Math.sin(a)}; }
+    q.x=clamp(q.x,x0+G*1.8,x1-G*1.8);
+    q.y = clamp(q.y,band.y0+G*1.3,band.y1-G*1.3);
+    if(++tries%40===0) rad+=G;
+  }while(tries<400 && (inMini(q) || shadows.some(sh=>dist(q.x,q.y,sh.x,sh.y)<minD) || holes.some(h=>h.kind===kind&&dist(q.x,q.y,h.x,h.y)<h.r+G*1.2) || [...placed,...gems.filter(m=>m.group!=null)].some(o=>dist(q.x,q.y,o.tx??o.x,o.ty??o.y)<minD)));
+  placed.push(q); return q;
+}
+function inMini(q){                    // keep new gems out from under the corner view of the other player
+  const w=Math.min(W*.3,200), h=w*.62;
+  return q.x>W-w-G*2.2 && q.y<LABEL_H()+h+G*1.6;
+}
+function spawn(kind,count,band,sign=1){
+  const placed=[], [x0,x1]=zone(kind);
+  for(let i=0;i<count;i++){
+    const q=freeSpot(kind,null,null,0,placed,band);
+    const gm=mkGem(kind,(x0+x1)/2,(band.y0+band.y1)/2,sign); gm.tx=q.x; gm.ty=q.y; gm.pop=Math.random()*.4;
+    const g=newGroup(kind,q.x,q.y); g.members.push(gm); gm.group=g.id; layout(g);
+  }
+}
+function resize(){
+  const r=cv.getBoundingClientRect(), oW=W, oH=H;
+  if(r.width<20||r.height<20) return;
+  W=r.width; H=r.height; DPR=Math.min(2,window.devicePixelRatio||1);
+  cv.width=Math.round(W*DPR); cv.height=Math.round(H*DPR); ctx.setTransform(DPR,0,0,DPR,0,0);
+  G=clamp(Math.min(W/KINDS.length/12,H/30),9,20); makeSprites(); placeBands();
+  if(!oW){ return; }                 // the game starts when both players are connected
+  for(const g of groups.values()){ g.cx*=W/oW; g.cy*=H/oH; layout(g); }
+}
+
+/* ---------- sound ---------- */
+let ac=null, muted=false;
+function tone(f,d=.09,type='sine',v=.12,delay=0){
+  if(muted) return; try{ ac=ac||new (window.AudioContext||window.webkitAudioContext)(); }catch(e){return}
+  const t=ac.currentTime+delay, o=ac.createOscillator(), gn=ac.createGain();
+  o.type=type; o.frequency.setValueAtTime(f,t); gn.gain.setValueAtTime(v,t); gn.gain.exponentialRampToValueAtTime(.001,t+d);
+  o.connect(gn).connect(ac.destination); o.start(t); o.stop(t+d+.02);
+}
+const sPick=()=>tone(520,.06,'triangle',.08);
+const sSnap=n=>tone(330*Math.pow(2,n/12),.1,'sine',.13);
+const sFull=()=>{[523,659,784,1046].forEach((f,i)=>tone(f,.18,'triangle',.1,i*.07))};
+const sNo=()=>{tone(150,.16,'square',.06);tone(120,.2,'square',.05,.08)};
+const sCombine=()=>{[392,523,659,784,1046].forEach((f,i)=>tone(f,.14,'sine',.11,i*.04))};
+const sSplit=()=>{[1046,784,659,523,392].forEach((f,i)=>tone(f,.12,'triangle',.09,i*.04))};
+
+/* ---------- feedback ---------- */
+let toastT=0;
+function toast(msg,kind){ toastEl.textContent=msg; toastEl.classList.toggle('good',kind==='good'); toastEl.classList.add('on'); clearTimeout(toastT); toastT=setTimeout(()=>toastEl.classList.remove('on'),1700); }
+function updateScore(){
+  const c={h:0,t:0,u:0}; for(const m of gems) c[m.kind]++;
+  eqEl.innerHTML=`<span>Nivel <span class="goal">${li+1}</span><span class="lvl">/11</span></span><span class="have">${LV().title} · problema ${pi+1}/${LV().problems.length}</span>`;
+}
+
+/* ---------- crossing the line: combine / split ---------- */
+function combine(g){            // 10 gems -> 1 gem of the next column left
+  const x=g.cx,y=g.cy, up=upKind(g.kind), sg=gsign(g);
+  g.members.forEach(m=>fx.push({kind:skey(m),x:m.x,y:m.y,tx:x,ty:y,life:1}));
+  dropGems(g.members); groups.delete(g.id);
+  const big=mkGem(up,x,y,sg); big.lift=1;
+  const ng=newGroup(up,x,y); ng.members.push(big); big.group=ng.id;
+  drag.g=ng; layout(ng); ng.glow=1;
+  fx.push({ring:true,x,y,life:1,col:up}); sCombine(); updateScore(); composed=true; setTimeout(updateCue,60);
+}
+function splitDown(g){          // 1 gem -> 10 loose gems of the next column right
+  const x=g.cx,y=g.cy, one=g.members[0], down=downKind(g.kind), sg=one.sign;
+  fx.push({kind:skey(one),x:one.x,y:one.y,tx:x,ty:y,life:1,grow:true});
+  dropGems(g.members); groups.delete(g.id);
+  const ng=newGroup(down,x,y);
+  for(let i=0;i<MAX;i++){ const m=mkGem(down,x,y,sg); ng.members.push(m); m.group=ng.id; }
+  drag=null;                     // let go: the 10 new gems spread out loose
+  splitGroup(ng, true);
+  fx.push({ring:true,x,y,life:1,col:down}); sSplit(); broken=true; setTimeout(updateCue,60);
+}
+function checkCross(g,p){
+  const [x0,x1]=zone(g.kind), hy=G*1.2, n=g.members.length;
+  if(canCombine(g)&&g.cx<x0-hy) return combine(g);
+  if(canSplit(g)&&g.cx>x1+hy) return splitDown(g);
+  const left=kIdx(g.kind)>0&&p.x<x0, right=kIdx(g.kind)<KINDS.length-1&&p.x>x1;
+  if((left&&!canCombine(g))||(right&&!canSplit(g))){
+    if(!drag.wall){ drag.wall=left?'l':'r'; g.shake=1; sNo();
+      toast(left?`Solo un grupo de exactamente 10 ${NAME[g.kind][1]} pasa a la izquierda (este tiene ${n})`
+                :`Solo una ${NAME[g.kind][0]} a la vez pasa a la derecha`); }
+  }else if(!left&&!right) drag.wall=false;
+}
+
+/* ---------- subtraction with negative gems ---------- */
+/* Plane A holds the starting number as gems. Plane B holds the number to take away as NEGATIVE gems.
+   Negative gems behave like normal gems among themselves: pick, collect (max 10), combine (10 cross left),
+   split (1 crosses right -> 10), double-click to break a group. When a group touches a group of the opposite
+   sign and the same kind, they cancel pair by pair: -6 + 2 = -4. Planes A and B are open to each other.
+   The level is solved when no negative gem is left: what remains is the answer. */
+const B={a0:0,a1:0,b0:0,b1:0,t0:0,t1:0,f0:0};
+let holes=[], shadows=[], A0=43, B0=17, round=0, solved=0, busy=false, trayOk=0, reqPop=1, trayShake=0;
+/* ---------- the 11 levels (from "Progresión de Niveles") ---------- */
+/* op: read = no operation, read the gems and set the lock; add; sub.
+   cues: step-by-step help on the lock (level 1). regroup: the gems start out of order (more than 9 in a
+   layer) and must be put in order before the lock opens (level 2). goal: target seconds from the document. */
+const LEVELS=[
+  {title:'Componer y descomponer', op:'read', tutorial:true, goal:null, problems:[
+     {n:13,g:{u:13},task:'compose',regroup:true},
+     {n:32,g:{t:3,u:2},task:'decompose'}]},
+  {title:'Leer y ordenar un número de 3 cifras', op:'read', goal:null, problems:[
+     {n:142,g:{h:1,t:3,u:12},regroup:true},{n:305,g:{h:2,t:10,u:5},regroup:true}]},
+  {title:'Suma sin reagrupación', op:'add', goal:10, problems:[[24,32],[63,24]]},
+  {title:'Suma: las unidades forman una decena', op:'add', goal:8, problems:[[29,31],[46,38]]},
+  {title:'Suma: las decenas forman una centena', op:'add', goal:6, problems:[[80,60],[90,40]]},
+  {title:'Resta sin desagrupación', op:'sub', goal:10, problems:[[57,23],[89,45]], intro:true},
+  {title:'Resta: romper una decena', op:'sub', goal:10, problems:[[60,24],[43,17]]},
+  {title:'Suma: reagrupación doble', op:'add', goal:12, problems:[[142,39],[275,148]]},
+  {title:'Suma: reagrupación en cascada', op:'add', goal:10, problems:[[345,287],[588,347]]},
+  {title:'Resta: romper una centena', op:'sub', goal:15, problems:[[300,145],[412,168]]},
+  {title:'Resta: desagrupación en cascada', op:'sub', goal:12, problems:[[803,547],[700,368]]},
+];
+let composed=false, broken=false;
+const PB=()=>LV().problems[pi];
+let li=0, pi=0, mode='read', N=0, hinted=false, t0=0, tEnd=0;
+const LV=()=>LEVELS[li];
+const OP=()=>mode==='add'?'+':'−';
+function placeBands(){
+  const top=LABEL_H(), F=(document.getElementById('footer').offsetHeight||G*3.4)+G*.4;
+  B.f0=H-F; B.t1=B.t0=B.f0;
+  B.a0=top; B.b1=B.t0-G*1.1;
+  B.a1=B.b0=B.b1;                    // multiplayer: each player sees only their own plane
+  holes=[];
+}
+const holeAt=()=>null;
+function holeCount(){ return 0; }
+const ri=(a,b)=>a+Math.floor(Math.random()*(b-a+1));
+const digitsOf=n=>({h:Math.floor(n/100),t:Math.floor(n/10)%10,u:n%10});
+let nextT=0;
+function newSum(first,restart){       // start the current problem (li, pi)
+  const L=LV(), P=L.problems[pi];
+  mode=L.op; round=li+1; hinted=false;
+  if(mode==='read'){ N=P.n; A0=P.n; B0=0; } else { [A0,B0]=P; }
+  busy=false; trayOk=0; reqPop=0; code=[0,0,0]; gemsDone=false; composed=false; broken=false; cancels=0; lockEl.classList.remove('open','bad');
+  gems=[]; groups.clear(); nextId=1; fx=[]; drag=null; shadows=[];
+  renderLock(); updateCue(); placeBands();
+  const band={y0:B.a0,y1:B.b1};
+  if(mode==='read'){ for(const k of KINDS) spawn(k,P.g[k]||0,band,1); }
+  else if(me===1){ const a=digitsOf(A0); for(const k of KINDS) spawn(k,a[k],band,1); }          // Player 1: plane A
+  else { const b=digitsOf(B0); for(const k of KINDS) spawn(k,b[k],band,mode==='add'?1:-1); }   // Player 2: plane B
+  otherGems=[]; myDone=''; lastMini='';
+  updateCue();
+  if(pi===0&&!restart) toast(`Nivel ${li+1}: ${L.title}`,'good');
+  t0=performance.now(); tEnd=0;
+  updateScore();
+}
+function advance(){                    // next problem, or the next level after 3
+  pi++;
+  if(pi>=LV().problems.length){
+    pi=0; li++;
+    if(li>=LEVELS.length){ li=0; toast('¡Completaste los 11 niveles! Empezamos otra vez desde el nivel 1.','good'); }
+  }
+  newSum(false);
+}
+function boardValue(){ return gems.reduce((v,m)=>v+m.sign*VALUE[m.kind],0); }
+function checkSum(){}
+function inOrder(){ const c={h:0,t:0,u:0}; for(const m of gems) c[m.kind]++; return KINDS.find(k=>c[k]>9)||null; }
+function checkWin(){
+  if(busy) return;
+  updateCue();
+  if(mode==='read'){
+    if(PB().regroup&&!inOrder()&&!gemsDone&&!LV().tutorial){ gemsDone=true; for(const h of groups.values()) h.glow=1;
+      toast('Las gemas están en orden. Léelas y marca el candado.','good'); tone(659,.12,'triangle',.09); tone(880,.14,'triangle',.09,.08); }
+    return;
+  }
+  if(mode==='add'){
+    // adding: each layer must end as ONE group of at most 9 gems (10 or more -> carry a group of 10 left)
+    const cnt={h:0,t:0,u:0}, grp={h:0,t:0,u:0};
+    for(const m of gems) cnt[m.kind]++;
+    for(const g of groups.values()) grp[g.kind]++;
+    const over=KINDS.find(k=>cnt[k]>9);
+    if(over){ if(!hinted&&grp[over]<=2){ hinted=true; toast(`La columna de las ${NAME[over][1]} tiene ${cnt[over]}: forma un grupo de 10 y llévalo a la izquierda.`); } return; }
+    if(KINDS.some(k=>grp[k]>1)) return;
+  } else if(gems.some(m=>m.sign<0)||otherGems.some(o=>o[1]<0)) return;
+  if(mode==='add') return;
+  // the gems show the answer, but the level is only won by opening the lock (no automatic code)
+  if(!gemsDone){ gemsDone=true; for(const h of groups.values()) h.glow=1;
+    toast('Las gemas están listas. Lee la respuesta y márcala en el candado.','good'); tone(659,.12,'triangle',.09); tone(880,.14,'triangle',.09,.08); }
+}
+let gemsDone=false;
+const answer=()=>mode==='read'?N:mode==='add'?A0+B0:A0-B0;
+function win(how,remoteSec){          // solved by opening the lock (here, or by the other player)
+  if(busy) return;
+  busy=true; solved++; trayOk=1;
+  for(const h of groups.values()) h.glow=1;
+  const ans=answer(); renderLock();
+  lockEl.classList.remove('bad'); lockEl.classList.add('open');
+  tEnd=performance.now(); const sec=remoteSec||(tEnd-t0)/1000, goal=LV().goal;
+  const timeTxt=`${sec.toFixed(1).replace('.',',')} s`+(goal?(sec<=goal?` · dentro de la meta de ${goal} s`:` · meta ${goal} s`):'');
+  const what=mode==='read'?`${ans}`:`${A0} ${OP()} ${B0} = ${ans}`;
+  const last=pi===LV().problems.length-1;
+  toast(`${remoteSec?`¡Jugador ${other} abrió el candado!`:'¡Abierto!'} ${what} · ${timeTxt}${last&&mode!=='read'?` · ¡Nivel ${li+1} completado!`:''}`,'good');
+  [523,659,784,1046,1318,1568].forEach((f,i)=>tone(f,.18,'triangle',.1,i*.07));
+  updateCue(); updateScore();
+  if(mode==='read'){                   // levels 1-2: wait until the other player also opens their lock
+    myDone=`${li}-${pi}`; send({t:'done',li,pi});
+    if(peerDone!==myDone) opEl.textContent='Esperando a tu compañero…';
+    maybeAdvance(); return;
+  }
+  if(!remoteSec) send({t:'win',li,pi,sec});
+  nextT=setTimeout(advance,last?3800:3000);
+}
+function maybeAdvance(){
+  if(myDone&&myDone===peerDone){ const last=pi===LV().problems.length-1; opEl.textContent='¡Los dos lo lograron!'; nextT=setTimeout(advance,last?3000:2200); }
+}
+/* ---------- the combination lock ---------- */
+const lockEl=document.getElementById('lock'), opEl=document.getElementById('op');
+const dials=[0,1,2].map(i=>document.getElementById('d'+i));
+let code=[0,0,0];
+function renderLock(){
+  dials.forEach((d,i)=>{ d.textContent=code[i]; d.setAttribute('aria-valuenow',code[i]); });
+  opEl.textContent=mode==='read'?'Gemas =':`${A0} ${OP()} ${B0} =`; opEl.classList.toggle('done',trayOk>0);
+}
+function dialChanged(){ if(mode!=='read') send({t:'dial',code}); }
+function spin(i,dir){ if(busy) return; code[i]=(code[i]+dir+10)%10; renderLock(); updateCue(); dialChanged(); lockEl.classList.remove('bad'); tone(1200+code[i]*40,.03,'square',.03); }
+function tryOpen(){
+  if(busy) return;
+  const v=code[0]*100+code[1]*10+code[2];
+  if(v===answer()){
+    if(mode==='read'&&PB().task==='decompose'&&!broken){ lockEl.classList.remove('bad'); void lockEl.offsetWidth; lockEl.classList.add('bad'); sNo();
+      return toast('¡Número correcto! Pero primero rompe una gema roja: llévala a la columna amarilla.'); }
+    const over=mode==='read'&&PB().regroup&&inOrder();
+    if(over){ lockEl.classList.remove('bad'); void lockEl.offsetWidth; lockEl.classList.add('bad'); sNo();
+      const c=gems.filter(m=>m.kind===over).length;
+      return toast(`Número correcto, pero las gemas no están en orden: la columna de las ${NAME[over][1]} tiene ${c}. Forma un grupo de 10 y llévalo a la izquierda.`); }
+    return win('lock');
+  }
+  lockEl.classList.remove('bad'); void lockEl.offsetWidth; lockEl.classList.add('bad');
+  sNo(); toast(`${v} no abre el candado. Inténtalo otra vez o resuélvelo con las gemas.`);
+}
+document.querySelectorAll('.wheel button').forEach(b=>b.addEventListener('click',()=>spin(+b.dataset.w,+b.dataset.d)));
+document.getElementById('openLock').addEventListener('click',tryOpen);
+dials.forEach((d,i)=>{
+  d.addEventListener('wheel',e=>{ e.preventDefault(); spin(i,e.deltaY<0?1:-1); },{passive:false});
+  d.addEventListener('keydown',e=>{
+    if(e.key==='ArrowUp'){ e.preventDefault(); spin(i,1); } else if(e.key==='ArrowDown'){ e.preventDefault(); spin(i,-1); }
+    else if(/^[0-9]$/.test(e.key)&&!busy){ code[i]=+e.key; renderLock(); updateCue(); dialChanged(); if(i<2) dials[i+1].focus(); }
+    else if(e.key==='Enter') tryOpen();
+  });
+  let sy=null;                          // drag up/down on a dial to roll it
+  d.addEventListener('pointerdown',e=>{ sy=e.clientY; d.setPointerCapture(e.pointerId); });
+  d.addEventListener('pointermove',e=>{ if(sy==null) return; const dy=sy-e.clientY; if(Math.abs(dy)>16){ spin(i,dy>0?1:-1); sy=e.clientY; } });
+  const end=()=>{ sy=null; }; d.addEventListener('pointerup',end); d.addEventListener('pointercancel',end);
+});
+/* ---------- level 1 cues: one step at a time on the lock ---------- */
+const cueEl=document.getElementById('cue'), openBtn=document.getElementById('openLock');
+const DIALK=['h','t','u'];
+const GEMS={h:'azules',t:'rojas',u:'amarillas'}, GEM1={h:'azul',t:'roja',u:'amarilla'}, DIAL={h:'azul',t:'rojo',u:'amarillo'};
+let cueKind=null, cancels=0;
+const say=t=>{ cueEl.innerHTML='<span>'+t+'</span>'; };
+function showCue(on){ if(cueEl.hidden===on){ cueEl.hidden=!on; placeBands(); } }
+function lockCue(intro){               // point at the next dial that is not right yet
+  const target=digitsOf(N), i=DIALK.findIndex(k=>code[DIALK.indexOf(k)]!==target[k]);
+  if(i<0){ say(intro+'El candado ya muestra el número. Pulsa Abrir.'); openBtn.classList.add('cue-on'); return; }
+  dials[i].classList.add('cue-on'); const k=DIALK[i];
+  say(intro+`Gira el dial ${DIAL[k]} hasta ${target[k]}.`);
+}
+function updateCue(){
+  dials.forEach(d=>d.classList.remove('cue-on')); openBtn.classList.remove('cue-on'); cueKind=null;
+  const L=LV();
+  if(mode==='read'&&!L.tutorial){ showCue(false); return; }
+  showCue(true);
+  if(busy){ say('¡Muy bien!'); return; }
+  const c={h:0,t:0,u:0}, neg={h:0,t:0,u:0};
+  for(const m of gems) (m.sign<0?neg:c)[m.kind]++;
+  if(L.tutorial){
+    if(PB().task==='compose'){
+      if(!composed&&c.u>=10){
+        const big=Math.max(0,...[...groups.values()].filter(g=>g.kind==='u').map(g=>g.members.length));
+        cueKind='u';
+        if(big<10) return say(`COMPONER: hay 13 unidades sueltas. Toma una gema amarilla y pásala sobre las demás para formar un grupo de 10 (ahora ${big||1}).`);
+        return say('¡Un grupo de 10 unidades! Llévalo a la columna roja: 10 unidades forman 1 decena.');
+      }
+      if(c.u>9){ cueKind='u'; return say('Vuelve a juntar 10 gemas amarillas y llévalas a la columna roja.'); }
+      return lockCue(`10 unidades se convirtieron en 1 decena: ${c.t} decena + ${c.u} unidades = ${N}. `);
+    }
+    if(!broken){ cueKind='t'; return say('DESCOMPONER: ahora al revés. Toma UNA gema roja y llévala a la columna amarilla: 1 decena se rompe en 10 unidades.'); }
+    return lockCue(`${c.t} decenas + ${c.u} unidades sigue siendo ${N}: el valor no cambió. `);
+  }
+  // both planes together (own gems + what the mini view of the other player shows)
+  const oc={h:0,t:0,u:0}, oneg={h:0,t:0,u:0};
+  for(const o of otherGems) (o[1]<0?oneg:oc)[KINDS[o[0]]]++;
+  if(mode==='add'){
+    if(pi===0&&li===2) return say('JUNTOS: arrastra un grupo hasta arriba (↑) para enviarlo a tu compañero. Junten las gemas, encuentren la suma y ábranla en el candado.');
+    return say('Envía gemas arrastrándolas hasta arriba (↑). Cualquiera de los dos puede girar los diales y abrir el candado.');
+  }
+  const C2={h:c.h+oc.h,t:c.t+oc.t,u:c.u+oc.u}, N2={h:neg.h+oneg.h,t:neg.t+oneg.t,u:neg.u+oneg.u};
+  if(!KINDS.some(k=>N2[k]>0)) return say('Ya no quedan gemas −. Cuenten las gemas que quedan y marquen el resultado en el candado.');
+  const need=['u','t'].find(k=>N2[k]>C2[k]);          // smallest column where there is not enough to take away
+  if(need){
+    const up=upKind(need), up2=upKind(up);
+    const breakK=C2[up]>0?up:(up2&&C2[up2]>0?up2:null);
+    if(breakK){
+      const mine=c[breakK]>0;
+      if(mine) cueKind=breakK;
+      const how=breakK===up?`lleva UNA gema ${GEM1[up]} a la columna ${need==='u'?'amarilla':'roja'}: 1 ${NAME[up][0]} se rompe en 10 ${NAME[need][1]}.`
+                           :'primero rompe UNA centena en 10 decenas (columna roja) y después una decena en 10 unidades (columna amarilla).';
+      return say(`Hay ${C2[need]} ${NAME[need][C2[need]===1?0:1]} y hay que quitar ${N2[need]}: no alcanza. DESAGRUPA: ${mine?'':'(las gemas están en el plano de tu compañero) '}${how}`);
+    }
+  }
+  if(L.intro&&pi===0&&cancels===0) return say('RESTAR: una gema + y una gema − del mismo color se cancelan (−1 + 1 = 0). Están en planos distintos: arrastra un grupo hasta arriba (↑) para enviarlo a tu compañero.');
+  return say('Junten gemas + y − del mismo color en un mismo plano para cancelarlas. Para enviar, arrastra hasta arriba (↑).');
+}
+function drawBands(dt){
+  if(cueKind){                         // soft pulse under the gems the cue is talking about
+    const a=.18+.12*Math.sin(performance.now()/250);
+    ctx.fillStyle=`rgba(95,211,160,${a})`;
+    for(const m of gems) if(m.kind===cueKind&&m.sign>0){ ctx.beginPath(); ctx.arc(m.x,m.y,G*1.45*SIZE[m.kind],0,Math.PI*2); ctx.fill(); }
+  }
+  if(mode==='read') return;
+  trayOk=Math.max(0,trayOk-dt*.4); reqPop=Math.min(1,reqPop+dt*3);
+  const L=G*.7;
+  ctx.font=`800 ${Math.round(G*.95)}px "Baloo 2", system-ui, sans-serif`; ctx.textAlign='left'; ctx.textBaseline='middle';
+  ctx.fillStyle=C.muted; ctx.fillText(me===1?'A · Jugador 1':`${OP()} B · Jugador 2`,L,B.a0+G*.9);
+  // the send band: drop a group here to send it to the other player
+  const held=drag&&drag.type==='hold'?drag.g:null;
+  if(held){
+    const inside=drag.lastY!=null&&drag.lastY<SEND_H();
+    ctx.fillStyle=inside?'rgba(95,211,160,.32)':'rgba(95,211,160,.12)'; ctx.fillRect(0,0,W,SEND_H());
+    ctx.fillStyle=inside?C.ink:C.ok; ctx.font=`800 ${Math.round(G*.8)}px "Baloo 2", system-ui, sans-serif`; ctx.textAlign='center';
+    ctx.fillText(`↑ Suelta aquí para enviar a Jugador ${other}`,W/2,SEND_H()*.5);
+  }
+  ctx.lineWidth=3; ctx.strokeStyle=C.ink; ctx.globalAlpha=.7;
+  ctx.beginPath(); ctx.moveTo(L,B.t0-G*.55); ctx.lineTo(W-L,B.t0-G*.55); ctx.stroke(); ctx.globalAlpha=1;
+
+}
+
+/* ---------- multiplayer (PeerJS: the two browsers talk directly) ---------- */
+/* Each game has a code in the link (?g=CODE). Player k registers the id gemas-CODE-k; Player 2 dials Player 1.
+   Messages: hello (sync on connect), dial (shared lock), win (shared, levels 3-11), done (levels 1-2),
+   gift (gems sent to the other plane), mini (snapshot for the corner view), restart, skip. */
+let me=0, other=0, peer=null, conn=null, started=false, otherGems=[], myDone='', peerDone='', lastMini='', retryT=0;
+const SEND_H=()=>LABEL_H()*.95;
+const qs=new URLSearchParams(location.search);
+let GCODE=(qs.get('g')||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
+const newCode=()=>Array.from({length:5},()=>'ABCDEFGHJKMNPQRSTUVWXYZ23456789'[Math.floor(Math.random()*31)]).join('');
+if(!GCODE){ GCODE=newCode(); qs.set('g',GCODE); history.replaceState(null,'','?'+qs.toString()); }
+const SRV=qs.get('srv');              // only for local testing: ?srv=host:port of a PeerJS server
+const lobbyEl=document.getElementById('lobby'), lmsg=document.getElementById('lmsg'), whoEl=document.getElementById('who');
+const r1=document.getElementById('r1'), r2=document.getElementById('r2');
+document.getElementById('gcode').textContent=GCODE;
+const glink=document.getElementById('glink'); glink.value=location.href.replace(/&?srv=[^&]*/,'').replace(/\?&/,'?');
+document.getElementById('copy').addEventListener('click',()=>{
+  const done=()=>{ lmsg.textContent='Enlace copiado. Envíaselo a tu compañero.'; };
+  try{ navigator.clipboard.writeText(glink.value).then(done,()=>{ glink.select(); }); }catch(e){ glink.select(); }
+});
+document.getElementById('newgame').addEventListener('click',()=>{ const q=new URLSearchParams(location.search); q.set('g',newCode()); location.search=q.toString(); });
+const pid=r=>`gemas-${GCODE}-${r}`.toLowerCase();
+function peerOptions(){
+  if(!SRV) return {debug:0};
+  const [host,port]=SRV.split(':'); return {host,port:+port||9000,path:'/',secure:false,debug:0};
+}
+function setWho(){
+  if(!me){ whoEl.textContent='Sin conectar'; whoEl.className='who'; return; }
+  const ok=conn&&conn.open;
+  whoEl.textContent=`Jugador ${me} · ${ok?'conectado':'esperando'}`; whoEl.className='who '+(ok?'on':'off');
+}
+function lobbyWait(text){
+  lobbyEl.hidden=false;
+  lmsg.innerHTML=`<span class="spin"></span>${text}`;
+}
+function chooseRole(r){
+  if(peer) return;
+  r1.disabled=r2.disabled=true; lmsg.innerHTML='<span class="spin"></span>Conectando…';
+  peer=new Peer(pid(r),peerOptions());
+  peer.on('open',()=>{
+    me=r; other=3-r; (r===1?r1:r2).classList.add('mine'); setWho();
+    lobbyWait(`Eres el Jugador ${me}. Esperando al Jugador ${other}…`);
+    if(me===2) dial();
+  });
+  peer.on('connection',c=>{ if(me===1) adopt(c); else c.close(); });
+  peer.on('disconnected',()=>{ try{ peer.reconnect(); }catch(e){} });
+  peer.on('error',e=>{
+    if(e.type==='unavailable-id'){
+      peer.destroy(); peer=null; me=0;
+      (r===1?r1:r2).disabled=true; (r===1?r1:r2).querySelector('small').textContent='Ocupado';
+      (r===1?r2:r1).disabled=false;
+      lmsg.textContent=`El Jugador ${r} ya está en esta partida. Elige el otro jugador.`;
+    } else if(e.type==='peer-unavailable'){ /* the other player is not here yet: dial() keeps trying */ }
+    else if(e.type==='network'||e.type==='server-error'||e.type==='socket-error'){ lmsg.textContent='No se pudo llegar al servidor de conexión. Revisa tu internet.'; }
+  });
+}
+function dial(){                      // Player 2 calls Player 1 until a connection opens
+  clearTimeout(retryT);
+  if(!peer||(conn&&conn.open)) return;
+  try{ adopt(peer.connect(pid(other),{reliable:true})); }catch(e){}
+  retryT=setTimeout(dial,3000);
+}
+function adopt(c){
+  c.on('open',()=>{ if(conn&&conn.open&&conn!==c){ c.close(); return; } conn=c; clearTimeout(retryT); onConnected(); });
+  c.on('data',onData);
+  c.on('close',()=>{ if(conn===c){ conn=null; onLost(); } });
+  c.on('error',()=>{});
+}
+function send(m){ if(conn&&conn.open){ try{ conn.send(m); }catch(e){} } }
+function onConnected(){ setWho(); send({t:'hello',li,pi,started}); }
+function onLost(){
+  setWho(); drag=null;
+  lobbyWait(`Se perdió la conexión con el Jugador ${other}. Esperando a que vuelva…`);
+  if(me===2) retryT=setTimeout(dial,1500);
+}
+function onData(m){
+  if(!m||typeof m!=='object') return;
+  switch(m.t){
+    case 'hello':{                      // first meeting or reconnection: both go to the furthest problem and restart it
+      const theirs=(+m.li||0)*10+(+m.pi||0), mine=li*10+pi;
+      if(theirs>mine){ li=Math.min(+m.li,LEVELS.length-1); pi=+m.pi||0; }
+      const wasStarted=started; started=true; lobbyEl.hidden=true; clearTimeout(nextT); peerDone='';
+      newSum(false,wasStarted);
+      if(wasStarted) toast('Conexión recuperada: el problema empieza de nuevo.','good');
+      else toast(`¡Conectados! Nivel ${li+1}: ${LV().title}`,'good');
+      setWho(); break;
+    }
+    case 'dial':
+      if(mode!=='read'&&!busy&&Array.isArray(m.code)){ code=m.code.map(v=>((+v|0)%10+10)%10).slice(0,3); renderLock(); updateCue(); lockEl.classList.remove('bad'); }
+      break;
+    case 'win':
+      if(m.li===li&&m.pi===pi&&mode!=='read'){ code=digitsArr(answer()); renderLock(); win('lock',+m.sec||0.1); }
+      break;
+    case 'done':
+      peerDone=`${m.li}-${m.pi}`;
+      if(myDone!==peerDone&&mode==='read'&&m.li===li&&m.pi===pi) toast(`Jugador ${other} ya abrió su candado. ¡Tú también puedes!`,'good');
+      maybeAdvance(); break;
+    case 'gift': receiveGift(m); break;
+    case 'mini': if(Array.isArray(m.g)) otherGems=m.g.slice(0,300); updateCue(); break;
+    case 'restart': if(m.li===li&&m.pi===pi){ clearTimeout(nextT); peerDone=''; newSum(false,true); toast(`Jugador ${other} reinició el problema`); } break;
+    case 'skip': clearTimeout(nextT); peerDone=''; li=Math.min(Math.max(0,+m.li|0),LEVELS.length-1); pi=0; newSum(false); break;
+  }
+}
+const digitsArr=n=>[Math.floor(n/100)%10,Math.floor(n/10)%10,n%10];
+r1.addEventListener('click',()=>chooseRole(1));
+r2.addEventListener('click',()=>chooseRole(2));
+if(typeof Peer==='undefined'){ r1.disabled=r2.disabled=true; lmsg.textContent='No se pudo cargar la librería de conexión. Recarga la página.'; }
+
+// sending a gem or a group to the other player's plane
+function sendGroup(g){
+  const n=g.members.length, kind=g.kind, sign=gsign(g);
+  g.members.forEach(m=>fx.push({kind:skey(m),x:m.x,y:m.y,tx:m.x,ty:-G*2,life:1,speed:2.2}));
+  dropGems(g.members); groups.delete(g.id);
+  send({t:'gift',kind,sign,n});
+  const nm=(n===1?NAME[kind][0]:NAME[kind][1])+(sign<0?(n===1?' negativa':' negativas'):'');
+  toast(`Enviaste ${n} ${nm} al Jugador ${other}`,'good'); tone(660,.08,'triangle',.08); tone(990,.1,'triangle',.08,.06);
+  sendMini(true); updateScore(); setTimeout(checkWin,200);
+}
+function receiveGift(m){
+  if(mode==='read'||!KINDS.includes(m.kind)) return;
+  const n=Math.max(1,Math.min(MAX,m.n|0)), sign=m.sign<0?-1:1;
+  const q=freeSpot(m.kind,null,null,0,[],{y0:B.a0,y1:B.b1});
+  const g=newGroup(m.kind,q.x,q.y);
+  for(let i=0;i<n;i++){ const gm=mkGem(m.kind,q.x,-G*2,sign); gm.join=.5; g.members.push(gm); gm.group=g.id; }
+  layout(g); g.glow=1;
+  const nm=(n===1?NAME[m.kind][0]:NAME[m.kind][1])+(sign<0?(n===1?' negativa':' negativas'):'');
+  toast(`Jugador ${other} te envió ${n} ${nm}`,'good'); tone(880,.08,'triangle',.08); tone(1320,.1,'triangle',.07,.06);
+  sendMini(true); updateScore(); setTimeout(checkWin,600);
+}
+// the corner view: a small, number-free picture of the other player's plane
+const miniEl=document.getElementById('mini'), mctx=miniEl.getContext('2d');
+let miniT=0;
+function sendMini(force){
+  const now=performance.now(); if(!force&&now-miniT<180) return; miniT=now;
+  const h=Math.max(1,B.b1-B.a0);
+  const snap=gems.map(m=>[KINDS.indexOf(m.kind),m.sign,+(m.tx/W).toFixed(3),+((m.ty-B.a0)/h).toFixed(3)]);
+  const js=JSON.stringify(snap); if(js===lastMini&&!force) return; lastMini=js;
+  send({t:'mini',g:snap});
+}
+function drawMini(){
+  if(!started){ miniEl.hidden=true; return; } miniEl.hidden=false;
+  const w=Math.round(Math.min(W*.3,200)), h=Math.round(w*.62), dpr=Math.min(2,window.devicePixelRatio||1);
+  if(miniEl.width!==w*dpr||miniEl.height!==h*dpr){ miniEl.width=w*dpr; miniEl.height=h*dpr; miniEl.style.width=w+'px'; miniEl.style.height=h+'px'; }
+  miniEl.style.top=Math.round(LABEL_H()+4)+'px';
+  const x=mctx; x.setTransform(dpr,0,0,dpr,0,0); x.clearRect(0,0,w,h);
+  x.fillStyle='rgba(11,17,26,.88)'; x.beginPath(); x.roundRect(0,0,w,h,10); x.fill();
+  x.strokeStyle=conn&&conn.open?'rgba(95,211,160,.6)':'rgba(255,122,102,.6)'; x.lineWidth=1.5; x.stroke();
+  const top=16, ph=h-top-4;
+  x.font='700 10px "Atkinson Hyperlegible", system-ui, sans-serif'; x.fillStyle=C.muted; x.textAlign='left'; x.textBaseline='middle';
+  x.fillText(`Jugador ${other}${mode==='read'?'':other===1?' · plano A':' · plano B'}`,7,9);
+  x.strokeStyle='rgba(170,200,230,.18)'; x.lineWidth=1;
+  for(let i=1;i<3;i++){ x.beginPath(); x.moveTo(w*i/3,top); x.lineTo(w*i/3,h-4); x.stroke(); }
+  const col={0:'#3b82f6',1:'#e5484d',2:'#f6c445'}, size={0:3.6,1:3,2:2.4};
+  for(const o of otherGems){
+    const gx=4+o[2]*(w-8), gy=top+Math.min(1,Math.max(0,o[3]))*ph, r=size[o[0]]||3;
+    hex(x,gx,gy,r);
+    if(o[1]<0){ x.fillStyle='#0b1018'; x.fill(); x.strokeStyle=col[o[0]]; x.lineWidth=1.2; x.stroke(); }
+    else { x.fillStyle=col[o[0]]; x.fill(); }
+  }
+}
+
+/* ---------- input ---------- */
+/* Pick a gem (or its group) -> it sticks to the pointer and collects what it touches (same kind, up to 10).
+   Release -> it stays. Double-click a group -> it breaks into loose gems. */
+function pos(e){ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left,y:e.clientY-r.top}; }
+let lastTap={t:0,gid:0};
+function hitGroup(p){
+  for(let i=gems.length-1;i>=0;i--){ const gm=gems[i], g=groups.get(gm.group); if(g&&!g.locked&&dist(p.x,p.y,gm.x,gm.y)<G*1.25) return g; }
+  for(const g of groups.values()){ const n=g.members.length; if(n>1&&!g.locked&&dist(p.x,p.y,g.cx,g.cy)<ringR(n)-G*.4) return g; }
+  return null;
+}
+function splitGroup(g,quiet){
+  const cx=g.cx, cy=g.cy, members=[...g.members], placed=[];
+  groups.delete(g.id); members.forEach(m=>m.group=null);
+  members.forEach(m=>{
+    const q=freeSpot(g.kind,cx,cy,ringR(members.length)+G*1.2,placed);
+    const ng=newGroup(g.kind,q.x,q.y); ng.members.push(m); m.group=ng.id; m.tx=q.x; m.ty=q.y; m.lift=.6; layout(ng);
+  });
+  if(!quiet) [880,660,520,440].forEach((f,i)=>tone(f,.08,'triangle',.08,i*.05));
+  updateScore();
+}
+cv.addEventListener('pointerdown',e=>{
+  if(drag) return; const p=pos(e);
+  const tg=hitGroup(p), now=performance.now();
+  if(tg && tg.members.length>1 && lastTap.gid===tg.id && now-lastTap.t<DBL_MS){ lastTap={t:0,gid:0}; splitGroup(tg); return; }
+  lastTap={t:now,gid:tg?tg.id:0};
+  if(!tg) return;
+  cv.setPointerCapture(e.pointerId);
+  const gm=gems.slice().reverse().find(m=>dist(p.x,p.y,m.x,m.y)<G*1.25);
+  if(gm && tg.members.length>1){
+    // in a group: start moving -> whole group; hold still -> lift only this gem
+    drag={type:'pending',gem:gm,g:tg,sx:p.x,sy:p.y,px:p.x,py:p.y,pid:e.pointerId};
+    drag.timer=setTimeout(()=>{ if(drag&&drag.type==='pending') liftSingle(); },LIFT_MS);
+  }else startHold(tg,p,e.pointerId);
+});
+function startHold(g,p,pid){
+  drag={type:'hold',g,pid,wall:false,plane:planeOf(g.cy)};
+  g.members.forEach(m=>{gems.splice(gems.indexOf(m),1);gems.push(m); m.join=.18;});
+  g.cx=p.x; g.cy=p.y; layout(g); sPick();
+  absorb();
+}
+function liftSingle(){
+  const gm=drag.gem, pid=drag.pid, p={x:drag.px,y:drag.py}, kind=drag.g.kind;
+  removeFromGroup(gm);
+  const g=newGroup(kind,p.x,p.y); g.members.push(gm); gm.group=g.id; gm.lift=1;
+  tone(760,.07,'triangle',.09); startHold(g,p,pid);
+}
+// a positive group and a negative group of the same kind touch: they cancel pair by pair (e.g. -6 + 2 = -4)
+const signed=(n,first)=>n<0?(first?`−${-n}`:`(−${-n})`):String(n);
+function annihilate(g,h){
+  const ng=g.members.length*gsign(g), nh=h.members.length*gsign(h), k=Math.min(g.members.length,h.members.length);
+  const near=(list,o)=>[...list].sort((a,b)=>dist(a.x,a.y,o.cx,o.cy)-dist(b.x,b.y,o.cx,o.cy)).slice(0,k);
+  const ga=near(g.members,h), hb=near(h.members,g);
+  ga.forEach((m,i)=>{ const o=hb[i]; const mx=(m.x+o.x)/2, my=(m.y+o.y)/2;
+    fx.push({kind:skey(m),x:m.x,y:m.y,tx:mx,ty:my,life:1}); fx.push({kind:skey(o),x:o.x,y:o.y,tx:mx,ty:my,life:1}); });
+  fx.push({ring:true,x:(g.cx+h.cx)/2,y:(g.cy+h.cy)/2,life:1,col:g.kind});
+  [...ga,...hb].forEach(m=>removeFromGroup(m)); dropGems([...ga,...hb]);
+  cancels++; toast(`${signed(nh,true)} + ${signed(ng)} = ${signed(nh+ng,true)}`, (nh+ng)===0?'good':undefined); updateCue();
+  tone(880,.06,'triangle',.09); tone(440,.14,'sine',.08,.05);
+  if(!groups.has(g.id)) drag=null;
+  updateScore(); setTimeout(checkWin,400);
+}
+function absorb(){
+  const g=drag.g, touch=G*2.05;
+  for(const h of [...groups.values()]){
+    if(h===g||h.locked) continue;
+    let hit=false;
+    for(const a of g.members){ for(const b of h.members){ if(dist(a.x,a.y,b.x,b.y)<touch){hit=true;break} } if(hit)break; }
+    if(!hit){ h.blocked=false; continue; }
+    if(h.kind!==g.kind) continue;   // units and tens never mix in one group
+    if(gsign(h)!==gsign(g)){ annihilate(g,h); if(!drag||!groups.has(g.id)) return; continue; }
+    if(g.members.length+h.members.length<=MAX){
+      for(const m of [...h.members]){ m.join=.22; addToGroup(g,m); }
+      groups.delete(h.id);
+      const n=g.members.length;
+      if(n===MAX){ g.glow=1; sFull(); } else sSnap(n);
+    }else if(!h.blocked){
+      h.blocked=true; h.shake=1; sNo();
+      toast(g.members.length===MAX?'Este grupo ya tiene 10':`${g.members.length} + ${h.members.length} es más de 10`);
+    }
+  }
+}
+cv.addEventListener('pointermove',e=>{
+  const p=pos(e);
+  if(!drag){ cv.style.cursor=hitGroup(p)?'grab':'default'; return; }
+  if(e.pointerId!==drag.pid) return;
+  if(drag.type==='pending'){
+    drag.px=p.x; drag.py=p.y;
+    if(dist(p.x,p.y,drag.sx,drag.sy)<7) return;
+    clearTimeout(drag.timer); startHold(drag.g,p,drag.pid);
+  }
+  drag.lastY=p.y;
+  let g=drag.g; g.cx=p.x; g.cy=p.y; layout(g);
+  checkCross(g,p); if(!drag) return; g=drag.g;
+  for(const m of g.members) if(!(m.join>0)){ m.x=m.tx; m.y=m.ty; }
+  absorb(); if(LV().tutorial) updateCue();
+});
+function release(e){
+  if(!drag||e.pointerId!==drag.pid) return;
+  if(drag.type==='pending'){ clearTimeout(drag.timer); drag=null; return; }
+  const g=drag.g, ly=drag.lastY; drag=null;
+  if(mode!=='read'&&ly!=null&&ly<SEND_H()&&groups.has(g.id)){ sendGroup(g); return; }
+  layout(g);       // settle back inside its own side
+  for(const h of groups.values()) h.blocked=false;
+  tone(260,.07,'sine',.08); updateScore(); cv.style.cursor='grab';
+  if(holeAt(g.kind,g.cx,g.cy)) setTimeout(()=>{ if(groups.has(g.id)) checkSum(g); },200);
+  else setTimeout(checkWin,200);
+}
+cv.addEventListener('pointerup',release);
+cv.addEventListener('pointercancel',release);
+
+document.getElementById('restart').addEventListener('click',()=>{ if(!started) return; clearTimeout(nextT); peerDone=''; newSum(false,true); send({t:'restart',li,pi}); toast('Problema reiniciado'); tone(330,.08,'triangle',.08); });
+document.getElementById('reset').addEventListener('click',()=>{if(!started) return;clearTimeout(nextT);pi=0;li=(li+1)%LEVELS.length;newSum(false);send({t:'skip',li});tone(400,.08,'triangle',.08)});
+const muteBtn=document.getElementById('mute');
+muteBtn.addEventListener('click',()=>{muted=!muted;muteBtn.textContent=muted?'Sonido no':'Sonido sí';muteBtn.setAttribute('aria-pressed',String(muted))});
+
+/* ---------- render ---------- */
+const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const C={gold:css('--gold'),ruby:css('--ruby'),sapphire:css('--sapphire'),ok:css('--ok'),warn:css('--warn'),ink:css('--ink'),muted:css('--muted')};
+const COLK={h:'sapphire',t:'ruby',u:'gold'};
+const TINT={h:'rgba(59,130,246,.07)',t:'rgba(229,72,77,.06)',u:'rgba(246,196,69,.05)'};
+function drawZones(){
+  const held=drag&&drag.type==='hold'?drag.g:null;
+  KINDS.forEach(k=>{ const [x0,x1]=zone(k); ctx.fillStyle=TINT[k]; ctx.fillRect(x0,0,x1-x0,H); });
+  // dividers: a line lights up when the held group is allowed to cross it
+  for(let i=1;i<KINDS.length;i++){
+    const x=W*i/KINDS.length, leftK=KINDS[i-1], rightK=KINDS[i];
+    const open=held&&((held.kind===rightK&&canCombine(held))||(held.kind===leftK&&canSplit(held)));
+    const wall=held&&drag.wall&&((held.kind===rightK&&drag.wall==='l')||(held.kind===leftK&&drag.wall==='r'));
+    ctx.beginPath(); ctx.moveTo(x,G*.6); ctx.lineTo(x,H-G*.6);
+    ctx.lineWidth=open?4:2; ctx.setLineDash(open?[]:[8,8]);
+    ctx.strokeStyle=wall?C.warn:open?C[COLK[held.kind]]:'rgba(170,200,230,.35)'; ctx.stroke(); ctx.setLineDash([]);
+  }
+  // column titles
+  ctx.textBaseline='middle'; ctx.textAlign='center'; const ty=LABEL_H()*.5;
+  KINDS.forEach(k=>{ const [x0,x1]=zone(k);
+    ctx.font=`800 ${Math.round(G*1.05)}px "Baloo 2", system-ui, sans-serif`; ctx.fillStyle=C[COLK[k]];
+    ctx.fillText(NAME[k][1].toUpperCase(),(x0+x1)/2,ty-G*.25);
+    ctx.font=`700 ${Math.round(G*.6)}px "Atkinson Hyperlegible", system-ui, sans-serif`; ctx.fillStyle=C.muted;
+    ctx.fillText(`cada una = ${VALUE[k]}`,(x0+x1)/2,ty+G*.7); });
+}
+let last=performance.now();
+const timerEl=document.getElementById('timer'); let lastTick=0;
+function tickTimer(now){
+  if(now-lastTick<100) return; lastTick=now;
+  const sec=((tEnd||now)-t0)/1000, goal=LV().goal;
+  timerEl.innerHTML=`<b>${sec.toFixed(1).replace('.',',')} s</b>${goal?` / meta ${goal} s`:''}`;
+  timerEl.classList.toggle('ok',!!tEnd&&(!goal||sec<=goal));
+}
+function frame(now){
+  tickTimer(now); if(started){ sendMini(false); drawMini(); }
+  const dt=Math.min(.05,(now-last)/1000); last=now; ctx.clearRect(0,0,W,H);
+  drawZones(); drawBands(dt);
+  const k=reduce?1:1-Math.pow(.0005,dt), kj=reduce?1:1-Math.pow(1e-7,dt);
+  for(const gm of gems){
+    const held=drag&&drag.type==='hold'&&gm.group===drag.g.id;
+    if(held&&!(gm.join>0)){ gm.x=gm.tx; gm.y=gm.ty; }
+    else { const kk=gm.join>0?kj:k; gm.x+=(gm.tx-gm.x)*kk; gm.y+=(gm.ty-gm.y)*kk; }
+    if(gm.join>0) gm.join-=dt;
+    if(gm.pop>0) gm.pop=Math.max(0,gm.pop-dt);
+  }
+  // rings
+  for(const g of groups.values()){
+    const n=g.members.length; g.shake=Math.max(0,g.shake-dt*2.5); g.glow=Math.max(0,g.glow-dt*.8);
+    const sx=reduce?0:Math.sin(g.shake*40)*g.shake*G*.5;
+    const hov=isHeld(g), bad=!!g.blocked;
+    if(n<2&&!hov) continue;
+    if(!hov&&holeAt(g.kind,g.cx,g.cy)) continue;
+    const r=ringR(Math.max(n,2)), cx=g.cx+sx, cy=g.cy, full=n===MAX;
+    const accent=C[COLK[g.kind]];
+    ctx.beginPath(); ctx.arc(cx,cy,r+G*1.35,0,Math.PI*2);
+    ctx.fillStyle=bad?'rgba(255,122,102,.14)':hov?'rgba(95,211,160,.10)':full?'rgba(246,196,69,.10)':'rgba(255,255,255,.035)'; ctx.fill();
+    ctx.lineWidth=2; ctx.setLineDash(full?[]:[5,6]); ctx.strokeStyle=bad?C.warn:hov?C.ok:full?accent:'rgba(170,200,230,.28)'; ctx.stroke(); ctx.setLineDash([]);
+    if(n>=2){
+      ctx.beginPath(); ctx.arc(cx,cy,r+G*1.35,-Math.PI/2,-Math.PI/2+Math.PI*2*n/MAX);
+      ctx.lineWidth=4; ctx.lineCap='round'; ctx.strokeStyle=accent; ctx.globalAlpha=full?1:.75; ctx.stroke(); ctx.globalAlpha=1; ctx.lineCap='butt';
+      ctx.fillStyle=full?accent:C.ink; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.font=`800 ${Math.round(G*(full?1.25:1.1))}px "Baloo 2", system-ui, sans-serif`; ctx.fillText(gsign(g)<0?`−${n}`:String(n),cx,cy+1);
+      ctx.font=`700 ${Math.round(G*.55)}px "Atkinson Hyperlegible", system-ui, sans-serif`; ctx.fillStyle=C.muted;
+      const val=n*VALUE[g.kind]*gsign(g), vt=val<0?`−${-val}`:String(val);
+      ctx.fillText(full?(g.kind==='h'?`= ${vt} = 1 millar`:`= ${vt} = 1 ${NAME[upKind(g.kind)][0]}`):`= ${vt}`,cx,cy+G*.95);
+    }
+    if(g.glow>0){ ctx.beginPath(); ctx.arc(cx,cy,r+G*1.35+(1-g.glow)*G*2,0,Math.PI*2); ctx.strokeStyle=accent; ctx.globalAlpha=g.glow; ctx.lineWidth=3; ctx.stroke(); ctx.globalAlpha=1; }
+  }
+  // hold-to-lift progress ring
+  if(drag&&drag.type==='pending'){
+    const gm=drag.gem; drag.hold=(drag.hold||0)+dt; const f=Math.min(1,drag.hold*1000/LIFT_MS);
+    ctx.beginPath(); ctx.arc(gm.x,gm.y,G*1.3,-Math.PI/2,-Math.PI/2+Math.PI*2*f); ctx.lineWidth=3; ctx.strokeStyle=C.ok; ctx.stroke();
+  }
+  // combine/split effects: ghosts of the old gems and a burst ring
+  fx=fx.filter(f=>{ if(f.delay>0){ f.delay-=dt; return true; } return (f.life-=dt*(reduce?6:(f.speed||2.6)))>0; });
+  for(const f of fx){
+    if(f.ring){ ctx.beginPath(); ctx.arc(f.x,f.y,G*(1.2+(1-f.life)*4),0,Math.PI*2); ctx.strokeStyle=C[COLK[f.col]]; ctx.globalAlpha=f.life; ctx.lineWidth=4; ctx.stroke(); ctx.globalAlpha=1; continue; }
+    const t=1-f.life, x=f.x+(f.tx-f.x)*t, y=f.y+(f.ty-f.y)*t, s=sprites[f.kind].css*(f.scale||1)*(f.grow?1+t*1.2:1-t*.5);
+    ctx.globalAlpha=f.life; ctx.drawImage(sprites[f.kind],x-s/2,y-s/2,s,s); ctx.globalAlpha=1;
+  }
+  // gems
+  for(const gm of gems){
+    const isDrag=drag&&drag.type==='hold'&&gm.group===drag.g.id;
+    const g=groups.get(gm.group), sx=g&&!reduce?Math.sin(g.shake*40)*g.shake*G*.5:0;
+    if(gm.lift>0) gm.lift=Math.max(0,gm.lift-dt*4);
+    const s=sprites[gm.kind].css*(isDrag?1.15:1)*(1-gm.pop*.8)*(1+(gm.lift||0)*.25);
+    if(isDrag){ ctx.beginPath(); ctx.ellipse(gm.x+3,gm.y+G*.9,G*.8,G*.28,0,0,Math.PI*2); ctx.fillStyle='rgba(0,0,0,.35)'; ctx.fill(); }
+    ctx.drawImage(sprites[skey(gm)],gm.x+sx-s/2,gm.y-s/2-(isDrag?3:0),s,s);
+  }
+  requestAnimationFrame(frame);
+}
+
+new ResizeObserver(resize).observe(cv);
+resize(); requestAnimationFrame(frame);
+if(document.fonts) document.fonts.ready.then(()=>{ if(W) makeSprites(); });
+})();
+</script>
+</body>
+</html>
