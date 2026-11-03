@@ -66,6 +66,10 @@ h1 span{color:var(--gold)}
 .lobby .msg{font-weight:700;color:var(--ink);min-height:1.4em}
 .lobby .spin{display:inline-block;width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--ok);border-radius:50%;animation:rot 1s linear infinite;vertical-align:-1px;margin-right:6px}
 @keyframes rot{to{transform:rotate(360deg)}}
+.lobby .acts{display:flex;gap:10px;flex-wrap:wrap}
+.lobby .acts .go{flex:1;background:var(--ok);color:#06281b;border-color:transparent;font:800 1.15rem var(--f-display);padding:12px 16px;border-radius:14px}
+.lobby .acts .ghost{flex:1}
+.lobby .msg.warn{color:var(--warn)}
 .lobby .link{background:none;border:0;color:var(--muted);text-decoration:underline;justify-self:start;padding:0}
 #mini{position:absolute;z-index:3;inset:auto;left:auto;right:max(10px,env(safe-area-inset-right,0px));background:none;pointer-events:none;border-radius:10px;opacity:.92}
 .timer{font:700 .85rem var(--f-body);color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap;padding:6px 10px;border:1px solid var(--line);border-radius:10px}
@@ -154,13 +158,18 @@ canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;displa
 <div class="lobby" id="lobby">
   <div class="card">
     <h2>Gemas <span>multijugador</span></h2>
-    <p>Partida <span class="code" id="gcode"></span>. Envía este enlace a tu compañero; cada uno elige un jugador.</p>
+    <p>Código de la partida: <span class="code" id="gcode"></span><br>Los dos jugadores deben tener el <b>mismo código</b>.</p>
     <div class="row"><input id="glink" readonly aria-label="Enlace de la partida"><button id="copy" type="button">Copiar enlace</button></div>
+    <div class="row"><input id="jcode" maxlength="8" autocomplete="off" placeholder="¿Tienes otro código? Escríbelo" aria-label="Código de la partida de tu compañero"><button id="join" type="button">Unirse</button></div>
     <div class="roles">
       <button id="r1" type="button">Jugador 1<small>Plano A</small></button>
       <button id="r2" type="button">Jugador 2<small>Plano B</small></button>
     </div>
-    <p class="msg" id="lmsg" role="status"></p>
+    <p class="msg" id="lmsg" role="status">Elige un jugador.</p>
+    <div class="acts">
+      <button class="ghost" id="cancelRole" type="button" hidden>Cambiar de jugador</button>
+      <button class="go" id="go" type="button" hidden>¡Empezar!</button>
+    </div>
     <button class="link" id="newgame" type="button">Crear otra partida</button>
   </div>
 </div>
@@ -617,10 +626,53 @@ document.getElementById('copy').addEventListener('click',()=>{
 });
 document.getElementById('newgame').addEventListener('click',()=>{ const q=new URLSearchParams(location.search); q.set('g',newCode()); location.search=q.toString(); });
 const pid=r=>`gemas-${GCODE}-${r}`.toLowerCase();
+const ICE={iceServers:[
+  {urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'},
+  // free public relay, used only when a direct connection is blocked by the network
+  {urls:['turn:openrelay.metered.ca:80','turn:openrelay.metered.ca:443','turn:openrelay.metered.ca:443?transport=tcp'],username:'openrelayproject',credential:'openrelayproject'}]};
 function peerOptions(){
-  if(!SRV) return {debug:0};
-  const [host,port]=SRV.split(':'); return {host,port:+port||9000,path:'/',secure:false,debug:0};
+  if(!SRV) return {debug:0,config:ICE};
+  const [host,port]=SRV.split(':'); return {host,port:+port||9000,path:'/',secure:false,debug:0,config:ICE};
 }
+const goBtn=document.getElementById('go'), cancelBtn=document.getElementById('cancelRole');
+let missCount=0, pending=null, pendingAt=0, waitT=0, countT=0, count=0;
+function say2(t,warn){ lmsg.innerHTML=t; lmsg.classList.toggle('warn',!!warn); }
+function resetRoles(){
+  for(const [b,n] of [[r1,1],[r2,2]]){ b.disabled=false; b.classList.remove('mine'); b.querySelector('small').textContent=n===1?'Plano A':'Plano B'; }
+}
+function cancelRole(){                 // undo the choice: free this player slot and choose again
+  clearTimeout(retryT); clearTimeout(waitT); clearTimeout(claimT); stopCount();
+  try{ sessionStorage.removeItem('gemas-role-'+GCODE); }catch(e){}
+  const c=conn; conn=null; if(c) try{ c.close(); }catch(e){}
+  const old=peer; peer=null; if(old) try{ old.destroy(); }catch(e){}
+  pending=null; me=0; other=0; missCount=0;
+  resetRoles(); cancelBtn.hidden=true; goBtn.hidden=true; say2('Elige un jugador.'); setWho();
+}
+function stopCount(){ clearInterval(countT); countT=0; goBtn.textContent='¡Empezar!'; }
+function showReady(){                  // both connected, game not started yet: GO button + automatic start
+  goBtn.hidden=false; cancelBtn.hidden=false;
+  say2(`¡Conectados! Jugador 1 y Jugador 2 están listos.`);
+  count=5; goBtn.textContent=`¡Empezar! (${count})`; clearInterval(countT);
+  countT=setInterval(()=>{ count--; if(count<=0){ startGame(false); } else goBtn.textContent=`¡Empezar! (${count})`; },1000);
+}
+function startGame(fromPeer){
+  stopCount(); if(started) return;
+  started=true; lobbyEl.hidden=true; goBtn.hidden=true; cancelBtn.hidden=true;
+  clearTimeout(nextT); peerDone=''; newSum(false,false);
+  toast(`¡A jugar! Nivel ${li+1}: ${LV().title}`,'good');
+  if(!fromPeer) send({t:'start'});
+  setWho();
+}
+goBtn.addEventListener('click',()=>startGame(false));
+cancelBtn.addEventListener('click',cancelRole);
+const jcode=document.getElementById('jcode');
+function joinCode(){
+  const c=jcode.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
+  if(c.length<3){ say2('Escribe el código que te dio tu compañero.',true); jcode.focus(); return; }
+  const q=new URLSearchParams(location.search); q.set('g',c); location.search=q.toString();
+}
+document.getElementById('join').addEventListener('click',joinCode);
+jcode.addEventListener('keydown',e=>{ if(e.key==='Enter') joinCode(); });
 function setWho(){
   if(!me){ whoEl.textContent='Sin conectar'; whoEl.className='who'; return; }
   const ok=conn&&conn.open;
@@ -630,35 +682,55 @@ function lobbyWait(text){
   lobbyEl.hidden=false;
   lmsg.innerHTML=`<span class="spin"></span>${text}`;
 }
-function chooseRole(r){
+let claimStart=0, claimT=0;
+function chooseRole(r,retry){
   if(peer) return;
-  r1.disabled=r2.disabled=true; lmsg.innerHTML='<span class="spin"></span>Conectando…';
-  peer=new Peer(pid(r),peerOptions());
+  if(!retry) claimStart=Date.now();
+  try{ sessionStorage.setItem('gemas-role-'+GCODE,String(r)); }catch(e){}
+  r1.disabled=r2.disabled=true; say2('<span class="spin"></span>Conectando…'); cancelBtn.hidden=false;
+  const p=peer=new Peer(pid(r),peerOptions());
   peer.on('open',()=>{
+    if(peer!==p) return;
     me=r; other=3-r; (r===1?r1:r2).classList.add('mine'); setWho();
-    lobbyWait(`Eres el Jugador ${me}. Esperando al Jugador ${other}…`);
+    lobbyWait(`Eres el Jugador ${me} en la partida ${GCODE}. Esperando al Jugador ${other}…`);
+    clearTimeout(waitT);
+    waitT=setTimeout(()=>{ if(!(conn&&conn.open)&&peer===p)
+      say2(`<span class="spin"></span>Sigues esperando al Jugador ${other}. Comprueba que tu compañero abrió el enlace con el código <b>${GCODE}</b> y eligió el Jugador ${other}.`); },12000);
     if(me===2) dial();
   });
   peer.on('connection',c=>{ if(me===1) adopt(c); else c.close(); });
-  peer.on('disconnected',()=>{ try{ peer.reconnect(); }catch(e){} });
+  peer.on('disconnected',()=>{ if(peer===p&&!p.destroyed) try{ p.reconnect(); }catch(e){} });
   peer.on('error',e=>{
     if(e.type==='unavailable-id'){
-      peer.destroy(); peer=null; me=0;
+      // right after a reload or "Cambiar de jugador" the server still holds the old id for a few seconds: retry
+      peer=null; try{ p.destroy(); }catch(_){} me=0;
+      if(Date.now()-claimStart<25000){
+        say2(`<span class="spin"></span>El puesto de Jugador ${r} todavía aparece ocupado. Reintentando…`);
+        claimT=setTimeout(()=>chooseRole(r,true),2000); return;
+      }
       (r===1?r1:r2).disabled=true; (r===1?r1:r2).querySelector('small').textContent='Ocupado';
       (r===1?r2:r1).disabled=false;
-      lmsg.textContent=`El Jugador ${r} ya está en esta partida. Elige el otro jugador.`;
-    } else if(e.type==='peer-unavailable'){ /* the other player is not here yet: dial() keeps trying */ }
-    else if(e.type==='network'||e.type==='server-error'||e.type==='socket-error'){ lmsg.textContent='No se pudo llegar al servidor de conexión. Revisa tu internet.'; }
+      cancelBtn.hidden=true;
+      say2(`El Jugador ${r} ya está en esta partida. Elige el otro jugador.`,true);
+    } else if(e.type==='peer-unavailable'){      // the other player is not in this game (yet): dial() keeps trying
+      pending=null; missCount++;
+      if(missCount>=1) say2(`<span class="spin"></span>No encuentro al Jugador ${other} en la partida <b>${GCODE}</b>. Revisen que los dos tengan el mismo código (o escribe aquí el código de tu compañero).`,true);
+    }
+    else if(e.type==='network'||e.type==='server-error'||e.type==='socket-error'){ say2('No se pudo llegar al servidor de conexión. Revisa tu internet y vuelve a elegir jugador.',true); }
   });
 }
 function dial(){                      // Player 2 calls Player 1 until a connection opens
   clearTimeout(retryT);
   if(!peer||(conn&&conn.open)) return;
-  try{ adopt(peer.connect(pid(other),{reliable:true})); }catch(e){}
-  retryT=setTimeout(dial,3000);
+  if(pending&&Date.now()-pendingAt<12000){ retryT=setTimeout(dial,1500); return; }   // still negotiating: don't interrupt it
+  if(pending){                                  // found the other player but could not open a channel
+    say2(`<span class="spin"></span>Encontré al Jugador ${other}, pero la red no deja conectar. Seguimos intentando… Si no funciona, prueben con otra red (por ejemplo, datos del celular).`,true);
+  }
+  try{ const c=peer.connect(pid(other),{reliable:true}); pending=c; pendingAt=Date.now(); adopt(c); }catch(e){}
+  retryT=setTimeout(dial,1500);
 }
 function adopt(c){
-  c.on('open',()=>{ if(conn&&conn.open&&conn!==c){ c.close(); return; } conn=c; clearTimeout(retryT); onConnected(); });
+  c.on('open',()=>{ if(conn&&conn.open&&conn!==c){ c.close(); return; } conn=c; pending=null; missCount=0; clearTimeout(retryT); clearTimeout(waitT); onConnected(); });
   c.on('data',onData);
   c.on('close',()=>{ if(conn===c){ conn=null; onLost(); } });
   c.on('error',()=>{});
@@ -666,22 +738,24 @@ function adopt(c){
 function send(m){ if(conn&&conn.open){ try{ conn.send(m); }catch(e){} } }
 function onConnected(){ setWho(); send({t:'hello',li,pi,started}); }
 function onLost(){
-  setWho(); drag=null;
+  setWho(); drag=null; stopCount(); goBtn.hidden=true; cancelBtn.hidden=started;
   lobbyWait(`Se perdió la conexión con el Jugador ${other}. Esperando a que vuelva…`);
   if(me===2) retryT=setTimeout(dial,1500);
 }
 function onData(m){
   if(!m||typeof m!=='object') return;
   switch(m.t){
-    case 'hello':{                      // first meeting or reconnection: both go to the furthest problem and restart it
+    case 'hello':{                      // first meeting: show GO. Reconnection: both go to the furthest problem and restart it
       const theirs=(+m.li||0)*10+(+m.pi||0), mine=li*10+pi;
       if(theirs>mine){ li=Math.min(+m.li,LEVELS.length-1); pi=+m.pi||0; }
-      const wasStarted=started; started=true; lobbyEl.hidden=true; clearTimeout(nextT); peerDone='';
+      if(!started&&!m.started){ showReady(); setWho(); break; }
+      const wasStarted=started; started=true; lobbyEl.hidden=true; stopCount(); goBtn.hidden=true; cancelBtn.hidden=true;
+      clearTimeout(nextT); peerDone='';
       newSum(false,wasStarted);
-      if(wasStarted) toast('Conexión recuperada: el problema empieza de nuevo.','good');
-      else toast(`¡Conectados! Nivel ${li+1}: ${LV().title}`,'good');
+      toast(wasStarted?'Conexión recuperada: el problema empieza de nuevo.':`¡Conectados! Nivel ${li+1}: ${LV().title}`,'good');
       setWho(); break;
     }
+    case 'start': startGame(true); break;
     case 'dial':
       if(mode!=='read'&&!busy&&Array.isArray(m.code)){ code=m.code.map(v=>((+v|0)%10+10)%10).slice(0,3); renderLock(); updateCue(); lockEl.classList.remove('bad'); }
       break;
@@ -699,7 +773,10 @@ function onData(m){
   }
 }
 const digitsArr=n=>[Math.floor(n/100)%10,Math.floor(n/10)%10,n%10];
+resetRoles();
 r1.addEventListener('click',()=>chooseRole(1));
+// after a reload, take back the same player automatically
+try{ const saved=+sessionStorage.getItem('gemas-role-'+GCODE); if(saved===1||saved===2) setTimeout(()=>{ if(typeof Peer!=='undefined') chooseRole(saved); },300); }catch(e){}
 r2.addEventListener('click',()=>chooseRole(2));
 if(typeof Peer==='undefined'){ r1.disabled=r2.disabled=true; lmsg.textContent='No se pudo cargar la librería de conexión. Recarga la página.'; }
 
